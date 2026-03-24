@@ -4,6 +4,7 @@
 import * as React from "react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { useSearchParams } from "next/navigation";
 import {
   Calendar as CalendarIcon,
   CheckCircle2,
@@ -12,7 +13,6 @@ import {
   Clock,
   CheckSquare,
   Activity,
-  Download,
   FileSpreadsheet,
   FileText,
   ChevronLeft,
@@ -30,7 +30,6 @@ import {
   ReferenceLine,
 } from "recharts";
 
-// Usando ruta relativa como solicitaste
 import { useCurrency } from "../context/CurrencyContext";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -88,9 +87,12 @@ type SortConfig = {
   direction: "asc" | "desc";
 };
 
-export default function DashboardPage() {
-  const { currency } = useCurrency();
+// 1. EXTRAEMOS TODA LA LÓGICA A UN COMPONENTE INTERNO
+function DashboardContent() {
+  const searchParams = useSearchParams();
+  const { currency, setCurrency } = useCurrency();
   const [date, setDate] = React.useState<Date | undefined>(new Date());
+
   const [datos, setDatos] = React.useState<Operacion[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
 
@@ -101,6 +103,20 @@ export default function DashboardPage() {
     direction: "asc",
   });
   const itemsPerPage = 20;
+
+  // Interceptamos la URL al montar el componente
+  React.useEffect(() => {
+    const urlFecha = searchParams.get('fecha');
+    const urlMoneda = searchParams.get('moneda');
+
+    if (urlMoneda) {
+      setCurrency(urlMoneda as any); 
+    }
+    if (urlFecha) {
+      // FIX: Usamos la fecha pura que viene de Firebase, sin cálculos de offset
+      setDate(new Date(urlFecha));
+    }
+  }, [searchParams, setCurrency]);
 
   const fetchReporte = async () => {
     if (!date) return;
@@ -139,10 +155,24 @@ export default function DashboardPage() {
     fetchReporte();
   }, [date, currency]);
 
+  const operadoresUnicos = React.useMemo(() => {
+    const names = new Set(datos.map((op) => op.Operador || "Sin asignar"));
+    return Array.from(names).sort();
+  }, [datos]);
+
+  const filteredDatos = React.useMemo(() => {
+    let result = datos;
+    if (filterOperador !== "todos") {
+      result = result.filter(
+        (op) => (op.Operador || "Sin asignar") === filterOperador,
+      );
+    }
+    return result;
+  }, [datos, filterOperador]);
+
   const resumenOperadores = React.useMemo(() => {
     const resumen: Record<string, any> = {};
-
-    datos.forEach((op) => {
+    filteredDatos.forEach((op) => {
       const nombre = op.Operador || "Sin asignar";
       if (!resumen[nombre]) {
         resumen[nombre] = {
@@ -165,12 +195,7 @@ export default function DashboardPage() {
         promedio: (r.tiempoTotal / r.total).toFixed(2),
       }))
       .sort((a, b) => b.total - a.total);
-  }, [datos]);
-
-  const operadoresUnicos = React.useMemo(
-    () => resumenOperadores.map((r) => r.nombre),
-    [resumenOperadores],
-  );
+  }, [filteredDatos]);
 
   const handleSort = (key: keyof Operacion) => {
     let direction: "asc" | "desc" = "asc";
@@ -182,42 +207,75 @@ export default function DashboardPage() {
   };
 
   const processedData = React.useMemo(() => {
-    let filtered = datos;
-    if (filterOperador !== "todos") {
-      filtered = filtered.filter(
-        (op) => (op.Operador || "Sin asignar") === filterOperador,
-      );
-    }
+    if (!sortConfig.key) return filteredDatos;
+    return [...filteredDatos].sort((a, b) => {
+      let aValue = a[sortConfig.key!];
+      let bValue = b[sortConfig.key!];
+      if (sortConfig.key === "Operador") {
+        aValue = aValue || "Sin asignar";
+        bValue = bValue || "Sin asignar";
+      }
+      if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
+      if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [filteredDatos, sortConfig]);
 
-    if (sortConfig.key) {
-      filtered = [...filtered].sort((a, b) => {
-        let aValue = a[sortConfig.key!];
-        let bValue = b[sortConfig.key!];
-
-        if (sortConfig.key === "Operador") {
-          aValue = aValue || "Sin asignar";
-          bValue = bValue || "Sin asignar";
-        }
-
-        if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
-        if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1;
-        return 0;
-      });
-    }
-
-    return filtered;
-  }, [datos, filterOperador, sortConfig]);
-
-  // --- CORRECCIÓN 1: La paginación ahora usa `processedData` en lugar de `datos` ---
-  const totalPages = Math.ceil(processedData.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedData = processedData.slice(startIndex, startIndex + itemsPerPage);
+  const totalOperaciones = filteredDatos.length;
+  const cumplenSLA = filteredDatos.filter((d) => d.Cumple).length;
+  const porcentajeCumplimiento =
+    totalOperaciones > 0
+      ? ((cumplenSLA / totalOperaciones) * 100).toFixed(1)
+      : 0;
+  const promedioTiempo =
+    totalOperaciones > 0
+      ? (
+          filteredDatos.reduce((acc, curr) => acc + curr.Tiempo, 0) /
+          totalOperaciones
+        ).toFixed(2)
+      : 0;
 
   const handleExportExcel = () => {
-    // --- CORRECCIÓN 2: Validamos contra `processedData` ---
-    if (processedData.length === 0) return toast.error("No hay datos para exportar");
-
-    // --- CORRECCIÓN 3: Mapeamos `processedData` ---
+    if (processedData.length === 0)
+      return toast.error("No hay datos para exportar");
+    const workbook = xlsx.utils.book_new();
+    const resumenGeneral = [
+      { Métrica: "Fecha del Reporte", Valor: format(date!, "dd/MM/yyyy") },
+      { Métrica: "Moneda", Valor: currency },
+      {
+        Métrica: "Filtro Aplicado",
+        Valor:
+          filterOperador !== "todos" ? filterOperador : "Todos los operadores",
+      },
+      { Métrica: "Total Procesados", Valor: totalOperaciones },
+      {
+        Métrica: "Cumplimiento SLA (<30m)",
+        Valor: `${porcentajeCumplimiento}%`,
+      },
+      { Métrica: "Tiempo Promedio (min)", Valor: promedioTiempo },
+    ];
+    const wsResumen = xlsx.utils.json_to_sheet(resumenGeneral);
+    if (resumenOperadores.length > 0) {
+      const operadoresExport = resumenOperadores.map((op) => ({
+        "Nombre del Agente": op.nombre,
+        "Total Retiros": op.total,
+        "Dentro de SLA": op.cumple,
+        "Fuera de SLA": op.noCumple,
+        "Cumplimiento (%)": `${((op.cumple / op.total) * 100).toFixed(2)}%`,
+        "Tiempo Promedio (min)": op.promedio,
+      }));
+      xlsx.utils.sheet_add_json(wsResumen, [{ "": "" }], {
+        skipHeader: true,
+        origin: -1,
+      });
+      xlsx.utils.sheet_add_json(
+        wsResumen,
+        [{ "": "RENDIMIENTO POR OPERADOR" }],
+        { skipHeader: true, origin: -1 },
+      );
+      xlsx.utils.sheet_add_json(wsResumen, operadoresExport, { origin: -1 });
+    }
+    xlsx.utils.book_append_sheet(workbook, wsResumen, "Resumen General");
     const dataToExport = processedData.map((op) => ({
       "Fecha Operación": format(
         new Date(op["Fecha de la operación"]),
@@ -232,29 +290,67 @@ export default function DashboardPage() {
       "Tiempo de Resolución (min)": op.Tiempo,
       "SLA Cumplido": op.Cumple ? "Sí" : "No",
     }));
-
-    const worksheet = xlsx.utils.json_to_sheet(dataToExport);
-    const workbook = xlsx.utils.book_new();
-    xlsx.utils.book_append_sheet(workbook, worksheet, "Operaciones");
-
-    const fileName = `Retiros_${currency}_${format(date!, "dd-MM-yyyy")}.xlsx`;
+    const wsDetalle = xlsx.utils.json_to_sheet(dataToExport);
+    xlsx.utils.book_append_sheet(workbook, wsDetalle, "Detalle de Operaciones");
+    const fileName = `Reporte_${currency}_${format(date!, "dd-MM-yyyy")}.xlsx`;
     xlsx.writeFile(workbook, fileName);
-    toast.success("Excel exportado correctamente");
+    toast.success("Excel gerencial exportado correctamente");
   };
 
   const handleExportPDF = () => {
-    // --- CORRECCIÓN 4: Validamos contra `processedData` ---
-    if (processedData.length === 0) return toast.error("No hay datos para exportar");
-
+    if (processedData.length === 0)
+      return toast.error("No hay datos para exportar");
     const doc = new jsPDF("landscape");
-
+    doc.setFontSize(16);
+    doc.text(`Reporte de Rendimiento - ${currency}`, 14, 15);
+    doc.setFontSize(10);
+    doc.setTextColor(100);
     doc.text(
-      `Reporte de Retiros - ${currency} - ${format(date!, "dd/MM/yyyy")}`,
+      `Fecha: ${format(date!, "dd/MM/yyyy")}  |  Filtro: ${filterOperador !== "todos" ? filterOperador : "Todos los operadores"}`,
       14,
-      15,
+      22,
     );
-
-    // --- CORRECCIÓN 5: Mapeamos `processedData` ---
+    doc.setFontSize(11);
+    doc.setTextColor(0);
+    doc.text(
+      `Total Procesados: ${totalOperaciones}   |   Cumplimiento SLA: ${porcentajeCumplimiento}%   |   Tiempo Promedio: ${promedioTiempo} min`,
+      14,
+      29,
+    );
+    let currentY = 38;
+    if (resumenOperadores.length > 0) {
+      doc.setFontSize(12);
+      doc.text("Resumen por Operador", 14, currentY);
+      const summaryBody = resumenOperadores.map((op) => [
+        op.nombre,
+        op.total.toString(),
+        op.cumple.toString(),
+        op.noCumple.toString(),
+        `${((op.cumple / op.total) * 100).toFixed(2)}%`,
+        `${op.promedio} min`,
+      ]);
+      autoTable(doc, {
+        startY: currentY + 3,
+        head: [
+          [
+            "Agente",
+            "Total Procesados",
+            "Dentro SLA",
+            "Fuera SLA",
+            "Cumplimiento",
+            "Tiempo Promedio",
+          ],
+        ],
+        body: summaryBody,
+        theme: "grid",
+        headStyles: { fillColor: [71, 85, 105] },
+        styles: { fontSize: 9 },
+        margin: { bottom: 15 },
+      });
+      currentY = (doc as any).lastAutoTable.finalY + 15;
+    }
+    doc.setFontSize(12);
+    doc.text("Registro Detallado", 14, currentY);
     const tableData = processedData.map((op) => [
       format(new Date(op["Fecha de la operación"]), "dd/MM HH:mm"),
       op.Operador || "Sin asignar",
@@ -264,89 +360,123 @@ export default function DashboardPage() {
       `${op.Tiempo} min`,
       op.Cumple ? "Sí" : "No",
     ]);
-
     autoTable(doc, {
-      startY: 20,
+      startY: currentY + 3,
       head: [["Fecha", "Operador", "Alias", "Nivel", "Monto", "Tiempo", "SLA"]],
       body: tableData,
       theme: "grid",
       headStyles: { fillColor: [15, 23, 42] },
       alternateRowStyles: { fillColor: [248, 250, 252] },
+      styles: { fontSize: 9 },
     });
-
-    doc.save(`Retiros_${currency}_${format(date!, "dd-MM-yyyy")}.pdf`);
-    toast.success("PDF exportado correctamente");
+    doc.save(`Reporte_${currency}_${format(date!, "dd-MM-yyyy")}.pdf`);
+    toast.success("PDF gerencial exportado correctamente");
   };
 
-  // Cálculos para KPIs generales (Los dejamos apuntando a `datos` para que siempre muestren el resumen global del día)
-  const totalOperaciones = datos.length;
-  const cumplenSLA = datos.filter((d) => d.Cumple).length;
-  const porcentajeCumplimiento =
-    totalOperaciones > 0
-      ? ((cumplenSLA / totalOperaciones) * 100).toFixed(1)
-      : 0;
-  const promedioTiempo =
-    totalOperaciones > 0
-      ? (
-          datos.reduce((acc, curr) => acc + curr.Tiempo, 0) / totalOperaciones
-        ).toFixed(2)
-      : 0;
+  const totalPages = Math.ceil(processedData.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedData = processedData.slice(
+    startIndex,
+    startIndex + itemsPerPage,
+  );
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8">
-      {/* Cabecera y Filtros */}
-      <div className="flex flex-col md:flex-row justify-between md:items-end gap-4">
+      {/* Cabecera Global con Exportaciones */}
+      <div className="flex flex-col xl:flex-row justify-between xl:items-end gap-4 bg-white p-5 rounded-lg border shadow-sm">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">
             Panel de Rendimiento
           </h1>
-          <p className="text-slate-500">
-            Métricas de retiros procesados en {currency}
+          <p className="text-slate-500 mt-1">
+            Métricas y reportes en {currency}
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-slate-700">
-            Fecha del Reporte:
-          </span>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant={"outline"}
-                className={cn(
-                  "w-[240px] justify-start text-left font-normal",
-                  !date && "text-muted-foreground",
-                )}
-              >
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {date ? (
-                  format(date, "PPP", { locale: es })
-                ) : (
-                  <span>Selecciona fecha</span>
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="end">
-              <Calendar
-                mode="single"
-                selected={date}
-                onSelect={setDate}
-                initialFocus
-                locale={es}
-              />
-            </PopoverContent>
-          </Popover>
-          <Button
-            onClick={fetchReporte}
-            disabled={isLoading || !date}
-            variant="secondary"
-          >
-            {isLoading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              "Actualizar"
-            )}
-          </Button>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={filterOperador}
+              onValueChange={(val) => {
+                setFilterOperador(val);
+                setCurrentPage(1);
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-[180px]">
+                <SelectValue placeholder="Filtrar por Operador" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos los operadores</SelectItem>
+                {operadoresUnicos.map((op, idx) => (
+                  <SelectItem key={idx} value={op}>
+                    {op}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant={"outline"}
+                  className={cn(
+                    "w-full sm:w-[200px] justify-start text-left font-normal",
+                    !date && "text-muted-foreground",
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {date ? (
+                    format(date, "PPP", { locale: es })
+                  ) : (
+                    <span>Selecciona fecha</span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="end">
+                <Calendar
+                  mode="single"
+                  selected={date}
+                  onSelect={setDate}
+                  initialFocus
+                  locale={es}
+                />
+              </PopoverContent>
+            </Popover>
+
+            <Button
+              onClick={fetchReporte}
+              disabled={isLoading || !date}
+              variant="secondary"
+              className="w-full sm:w-auto bg-slate-100"
+            >
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                "Actualizar"
+              )}
+            </Button>
+          </div>
+
+          <div className="hidden sm:block h-10 w-px bg-slate-200"></div>
+
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Button
+              variant="outline"
+              onClick={handleExportExcel}
+              disabled={processedData.length === 0}
+              className="w-full sm:w-auto border-emerald-200 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50"
+            >
+              <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleExportPDF}
+              disabled={processedData.length === 0}
+              className="w-full sm:w-auto border-rose-200 text-rose-700 hover:text-rose-800 hover:bg-rose-50"
+            >
+              <FileText className="w-4 h-4 mr-2" /> PDF
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -394,13 +524,16 @@ export default function DashboardPage() {
       {/* Gráfico de Tiempos */}
       <Card>
         <CardHeader>
-          <CardTitle>Tiempos de Procesamiento (Todos los operadores)</CardTitle>
+          <CardTitle>
+            Tiempos de Procesamiento{" "}
+            {filterOperador !== "todos" && `(${filterOperador})`}
+          </CardTitle>
         </CardHeader>
         <CardContent className="h-[300px] w-full">
-          {datos.length > 0 ? (
+          {filteredDatos.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
-                data={datos}
+                data={filteredDatos}
                 margin={{ top: 20, right: 30, left: 0, bottom: 5 }}
               >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -466,7 +599,8 @@ export default function DashboardPage() {
         <CardHeader className="bg-slate-50/50 border-b">
           <CardTitle className="text-lg">Rendimiento por Operador</CardTitle>
           <CardDescription>
-            Métricas individuales de eficiencia para el día seleccionado.
+            Métricas de eficiencia.{" "}
+            {filterOperador !== "todos" && "Mostrando operador seleccionado."}
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -522,63 +656,17 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* Tabla Principal con Filtros, Paginación y Exportación */}
+      {/* Tabla Principal */}
       <Card>
-        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <CardTitle>Registro Detallado</CardTitle>
-            <CardDescription>
-              Mostrando {paginatedData.length} de {processedData.length}{" "}
-              operaciones
-              {filterOperador !== "todos" && ` para ${filterOperador}`}.
-            </CardDescription>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <Select
-              value={filterOperador}
-              onValueChange={(val) => {
-                setFilterOperador(val);
-                setCurrentPage(1); 
-              }}
-            >
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Filtrar por Operador" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos los operadores</SelectItem>
-                {operadoresUnicos.map((op, idx) => (
-                  <SelectItem key={idx} value={op}>
-                    {op}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block"></div>
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExportExcel}
-              disabled={processedData.length === 0}
-              className="text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50"
-            >
-              <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExportPDF}
-              disabled={processedData.length === 0}
-              className="text-rose-700 hover:text-rose-800 hover:bg-rose-50"
-            >
-              <FileText className="w-4 h-4 mr-2" /> PDF
-            </Button>
-          </div>
+        <CardHeader className="border-b bg-slate-50/30">
+          <CardTitle>Registro Detallado</CardTitle>
+          <CardDescription>
+            Mostrando {paginatedData.length} de {processedData.length}{" "}
+            operaciones.
+          </CardDescription>
         </CardHeader>
 
-        <CardContent className="p-0 border-t">
+        <CardContent className="p-0">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
@@ -688,7 +776,6 @@ export default function DashboardPage() {
             </TableBody>
           </Table>
 
-          {/* Controles de Paginación */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between px-6 py-4 border-t bg-slate-50 rounded-b-lg">
               <div className="text-sm text-slate-500">
@@ -719,5 +806,20 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// 2. EXPORTAMOS LA VISTA PRINCIPAL ENVUELTA EN SUSPENSE
+export default function DashboardPage() {
+  return (
+    <React.Suspense
+      fallback={
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+        </div>
+      }
+    >
+      <DashboardContent />
+    </React.Suspense>
   );
 }

@@ -19,15 +19,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es">
-      <body className={`${inter.className} bg-slate-50 min-h-screen`}>
+    <html lang="es" suppressHydrationWarning>
+      <body className={`${inter.className} bg-slate-50 min-h-screen`} suppressHydrationWarning>
         {/* Envolvemos toda la app en el proveedor de moneda */}
         <CurrencyProvider>
           <TopBar />
           <main>
             {children}
           </main>
-          <Toaster richColors closeButton position="top-right" />
+          <Toaster richColors closeButton position="bottom-right" />
         </CurrencyProvider>
       </body>
     </html>
