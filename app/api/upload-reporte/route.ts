@@ -25,10 +25,13 @@ function transformarFila(fila: FilaReporteCruda, moneda: string, fechaReporte: s
   const cumple = tiempo < 30;
 
   const logUserCrudo = fila["Log user"] || ""; 
-  const operadorFormateado = logUserCrudo
-    .split('.')
-    .map(nombre => nombre.charAt(0).toUpperCase() + nombre.slice(1).toLowerCase())
-    .join(' ');
+  let operadorFormateado = "Autopago";
+  if (logUserCrudo.trim() !== "") {
+    operadorFormateado = logUserCrudo
+      .split('.')
+      .map(nombre => nombre.charAt(0).toUpperCase() + nombre.slice(1).toLowerCase())
+      .join(' ');
+  }
 
   return {
     "Fecha de la operación": fila["Fecha de la operación"],

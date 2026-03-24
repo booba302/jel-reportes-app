@@ -87,7 +87,6 @@ type SortConfig = {
   direction: "asc" | "desc";
 };
 
-// 1. EXTRAEMOS TODA LA LÓGICA A UN COMPONENTE INTERNO
 function DashboardContent() {
   const searchParams = useSearchParams();
   const { currency, setCurrency } = useCurrency();
@@ -104,7 +103,6 @@ function DashboardContent() {
   });
   const itemsPerPage = 20;
 
-  // Interceptamos la URL al montar el componente
   React.useEffect(() => {
     const urlFecha = searchParams.get('fecha');
     const urlMoneda = searchParams.get('moneda');
@@ -113,7 +111,6 @@ function DashboardContent() {
       setCurrency(urlMoneda as any); 
     }
     if (urlFecha) {
-      // FIX: Usamos la fecha pura que viene de Firebase, sin cálculos de offset
       setDate(new Date(urlFecha));
     }
   }, [searchParams, setCurrency]);
@@ -155,8 +152,9 @@ function DashboardContent() {
     fetchReporte();
   }, [date, currency]);
 
+  // FIX: Si el campo Operador viene vacío (como en reportes viejos), lo forzamos a "Autopago"
   const operadoresUnicos = React.useMemo(() => {
-    const names = new Set(datos.map((op) => op.Operador || "Sin asignar"));
+    const names = new Set(datos.map((op) => op.Operador || "Autopago"));
     return Array.from(names).sort();
   }, [datos]);
 
@@ -164,7 +162,7 @@ function DashboardContent() {
     let result = datos;
     if (filterOperador !== "todos") {
       result = result.filter(
-        (op) => (op.Operador || "Sin asignar") === filterOperador,
+        (op) => (op.Operador || "Autopago") === filterOperador,
       );
     }
     return result;
@@ -173,7 +171,7 @@ function DashboardContent() {
   const resumenOperadores = React.useMemo(() => {
     const resumen: Record<string, any> = {};
     filteredDatos.forEach((op) => {
-      const nombre = op.Operador || "Sin asignar";
+      const nombre = op.Operador || "Autopago";
       if (!resumen[nombre]) {
         resumen[nombre] = {
           nombre,
@@ -211,29 +209,34 @@ function DashboardContent() {
     return [...filteredDatos].sort((a, b) => {
       let aValue = a[sortConfig.key!];
       let bValue = b[sortConfig.key!];
+      
       if (sortConfig.key === "Operador") {
-        aValue = aValue || "Sin asignar";
-        bValue = bValue || "Sin asignar";
+        aValue = aValue || "Autopago";
+        bValue = bValue || "Autopago";
       }
+      
       if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
       if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1;
       return 0;
     });
   }, [filteredDatos, sortConfig]);
 
-  const totalOperaciones = filteredDatos.length;
-  const cumplenSLA = filteredDatos.filter((d) => d.Cumple).length;
-  const porcentajeCumplimiento =
-    totalOperaciones > 0
-      ? ((cumplenSLA / totalOperaciones) * 100).toFixed(1)
+  // --- LÓGICA DE KPIs AJUSTADA ---
+  const totalOperaciones = filteredDatos.length; // El total sigue incluyendo los autopagos
+  
+  // Extraemos solo a los operadores humanos para no alterar el promedio de rendimiento
+  const operacionesHumanas = filteredDatos.filter(d => (d.Operador || "Autopago") !== "Autopago");
+  const totalHumanas = operacionesHumanas.length;
+
+  const cumplenSLA = operacionesHumanas.filter((d) => d.Cumple).length;
+  const porcentajeCumplimiento = totalHumanas > 0
+      ? ((cumplenSLA / totalHumanas) * 100).toFixed(1)
       : 0;
-  const promedioTiempo =
-    totalOperaciones > 0
-      ? (
-          filteredDatos.reduce((acc, curr) => acc + curr.Tiempo, 0) /
-          totalOperaciones
-        ).toFixed(2)
+      
+  const promedioTiempo = totalHumanas > 0
+      ? (operacionesHumanas.reduce((acc, curr) => acc + curr.Tiempo, 0) / totalHumanas).toFixed(2)
       : 0;
+  // --- FIN LÓGICA DE KPIs ---
 
   const handleExportExcel = () => {
     if (processedData.length === 0)
@@ -244,16 +247,16 @@ function DashboardContent() {
       { Métrica: "Moneda", Valor: currency },
       {
         Métrica: "Filtro Aplicado",
-        Valor:
-          filterOperador !== "todos" ? filterOperador : "Todos los operadores",
+        Valor: filterOperador !== "todos" ? filterOperador : "Todos los operadores",
       },
-      { Métrica: "Total Procesados", Valor: totalOperaciones },
+      { Métrica: "Total Procesados (Inc. Autopago)", Valor: totalOperaciones },
       {
-        Métrica: "Cumplimiento SLA (<30m)",
+        Métrica: "Cumplimiento SLA Equipo (<30m)",
         Valor: `${porcentajeCumplimiento}%`,
       },
-      { Métrica: "Tiempo Promedio (min)", Valor: promedioTiempo },
+      { Métrica: "Tiempo Promedio Equipo (min)", Valor: promedioTiempo },
     ];
+    
     const wsResumen = xlsx.utils.json_to_sheet(resumenGeneral);
     if (resumenOperadores.length > 0) {
       const operadoresExport = resumenOperadores.map((op) => ({
@@ -264,24 +267,15 @@ function DashboardContent() {
         "Cumplimiento (%)": `${((op.cumple / op.total) * 100).toFixed(2)}%`,
         "Tiempo Promedio (min)": op.promedio,
       }));
-      xlsx.utils.sheet_add_json(wsResumen, [{ "": "" }], {
-        skipHeader: true,
-        origin: -1,
-      });
-      xlsx.utils.sheet_add_json(
-        wsResumen,
-        [{ "": "RENDIMIENTO POR OPERADOR" }],
-        { skipHeader: true, origin: -1 },
-      );
+      xlsx.utils.sheet_add_json(wsResumen, [{ "": "" }], { skipHeader: true, origin: -1 });
+      xlsx.utils.sheet_add_json(wsResumen, [{ "": "RENDIMIENTO DETALLADO" }], { skipHeader: true, origin: -1 });
       xlsx.utils.sheet_add_json(wsResumen, operadoresExport, { origin: -1 });
     }
     xlsx.utils.book_append_sheet(workbook, wsResumen, "Resumen General");
+    
     const dataToExport = processedData.map((op) => ({
-      "Fecha Operación": format(
-        new Date(op["Fecha de la operación"]),
-        "yyyy-MM-dd HH:mm:ss",
-      ),
-      Operador: op.Operador || "Sin asignar",
+      "Fecha Operación": format(new Date(op["Fecha de la operación"]), "yyyy-MM-dd HH:mm:ss"),
+      Operador: op.Operador || "Autopago",
       Alias: op.Alias,
       Jugador: op.Jugador,
       Nivel: op.Nivel,
@@ -292,6 +286,7 @@ function DashboardContent() {
     }));
     const wsDetalle = xlsx.utils.json_to_sheet(dataToExport);
     xlsx.utils.book_append_sheet(workbook, wsDetalle, "Detalle de Operaciones");
+    
     const fileName = `Reporte_${currency}_${format(date!, "dd-MM-yyyy")}.xlsx`;
     xlsx.writeFile(workbook, fileName);
     toast.success("Excel gerencial exportado correctamente");
@@ -313,14 +308,14 @@ function DashboardContent() {
     doc.setFontSize(11);
     doc.setTextColor(0);
     doc.text(
-      `Total Procesados: ${totalOperaciones}   |   Cumplimiento SLA: ${porcentajeCumplimiento}%   |   Tiempo Promedio: ${promedioTiempo} min`,
+      `Procesados: ${totalOperaciones}   |   SLA Equipo: ${porcentajeCumplimiento}%   |   Tiempo Promedio Equipo: ${promedioTiempo} min`,
       14,
       29,
     );
     let currentY = 38;
     if (resumenOperadores.length > 0) {
       doc.setFontSize(12);
-      doc.text("Resumen por Operador", 14, currentY);
+      doc.text("Resumen por Operador (Incluye Autopagos)", 14, currentY);
       const summaryBody = resumenOperadores.map((op) => [
         op.nombre,
         op.total.toString(),
@@ -353,7 +348,7 @@ function DashboardContent() {
     doc.text("Registro Detallado", 14, currentY);
     const tableData = processedData.map((op) => [
       format(new Date(op["Fecha de la operación"]), "dd/MM HH:mm"),
-      op.Operador || "Sin asignar",
+      op.Operador || "Autopago",
       op.Alias,
       op.Nivel,
       `${op.Cantidad} ${currency}`,
@@ -394,7 +389,7 @@ function DashboardContent() {
         </div>
 
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <Select
               value={filterOperador}
               onValueChange={(val) => {
@@ -459,7 +454,7 @@ function DashboardContent() {
 
           <div className="hidden sm:block h-10 w-px bg-slate-200"></div>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto mt-4 sm:mt-0">
             <Button
               variant="outline"
               onClick={handleExportExcel}
@@ -491,12 +486,13 @@ function DashboardContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totalOperaciones}</div>
+            <p className="text-xs text-slate-500 mt-1">Incluye Autopagos</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">
-              Cumplimiento SLA (&lt;30m)
+              Cumplimiento SLA Equipo
             </CardTitle>
             <CheckSquare className="h-4 w-4 text-emerald-500" />
           </CardHeader>
@@ -504,12 +500,13 @@ function DashboardContent() {
             <div className="text-2xl font-bold text-emerald-600">
               {porcentajeCumplimiento}%
             </div>
+            <p className="text-xs text-slate-500 mt-1">Excluye Autopagos</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">
-              Tiempo Promedio
+              Tiempo Promedio Equipo
             </CardTitle>
             <Clock className="h-4 w-4 text-blue-500" />
           </CardHeader>
@@ -517,6 +514,7 @@ function DashboardContent() {
             <div className="text-2xl font-bold text-blue-600">
               {promedioTiempo} min
             </div>
+            <p className="text-xs text-slate-500 mt-1">Excluye Autopagos</p>
           </CardContent>
         </Card>
       </div>
@@ -731,7 +729,7 @@ function DashboardContent() {
                 paginatedData.map((op) => (
                   <TableRow key={op.id}>
                     <TableCell className="pl-6 font-medium text-slate-700">
-                      {op.Operador || "Sin asignar"}
+                      {op.Operador || "Autopago"}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-slate-600">
                       {format(
@@ -809,7 +807,6 @@ function DashboardContent() {
   );
 }
 
-// 2. EXPORTAMOS LA VISTA PRINCIPAL ENVUELTA EN SUSPENSE
 export default function DashboardPage() {
   return (
     <React.Suspense
