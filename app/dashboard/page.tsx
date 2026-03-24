@@ -1,0 +1,723 @@
+// src/app/dashboard/page.tsx
+"use client";
+
+import * as React from "react";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
+import {
+  Calendar as CalendarIcon,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  Clock,
+  CheckSquare,
+  Activity,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  ChevronLeft,
+  ChevronRight,
+  ArrowUpDown,
+} from "lucide-react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+} from "recharts";
+
+// Usando ruta relativa como solicitaste
+import { useCurrency } from "../context/CurrencyContext";
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import * as xlsx from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { toast } from "sonner";
+
+interface Operacion {
+  id: string;
+  "Fecha de la operación": string;
+  Jugador: number;
+  Alias: string;
+  Cantidad: number;
+  Nivel: string;
+  "Update date": string;
+  Tiempo: number;
+  Cumple: boolean;
+  Operador?: string;
+}
+
+type SortConfig = {
+  key: keyof Operacion | null;
+  direction: "asc" | "desc";
+};
+
+export default function DashboardPage() {
+  const { currency } = useCurrency();
+  const [date, setDate] = React.useState<Date | undefined>(new Date());
+  const [datos, setDatos] = React.useState<Operacion[]>([]);
+  const [isLoading, setIsLoading] = React.useState(false);
+
+  const [currentPage, setCurrentPage] = React.useState(1);
+  const [filterOperador, setFilterOperador] = React.useState<string>("todos");
+  const [sortConfig, setSortConfig] = React.useState<SortConfig>({
+    key: "Fecha de la operación",
+    direction: "asc",
+  });
+  const itemsPerPage = 20;
+
+  const fetchReporte = async () => {
+    if (!date) return;
+    setIsLoading(true);
+    setCurrentPage(1);
+    setFilterOperador("todos");
+
+    try {
+      const dateStr = date.toISOString();
+      const q = query(
+        collection(db, "operaciones_retiros"),
+        where("Moneda", "==", currency),
+        where("Fecha del reporte", "==", dateStr),
+      );
+      const querySnapshot = await getDocs(q);
+      const operaciones: Operacion[] = [];
+      querySnapshot.forEach((doc) =>
+        operaciones.push({ id: doc.id, ...doc.data() } as Operacion),
+      );
+      setDatos(operaciones);
+      if (operaciones.length === 0)
+        toast.info("Sin datos", {
+          description: `No hay registros para ${currency} en esta fecha.`,
+        });
+    } catch (error) {
+      console.error("Error obteniendo documentos: ", error);
+      toast.error("Error", {
+        description: "Hubo un problema al cargar el reporte.",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    fetchReporte();
+  }, [date, currency]);
+
+  const resumenOperadores = React.useMemo(() => {
+    const resumen: Record<string, any> = {};
+
+    datos.forEach((op) => {
+      const nombre = op.Operador || "Sin asignar";
+      if (!resumen[nombre]) {
+        resumen[nombre] = {
+          nombre,
+          total: 0,
+          cumple: 0,
+          noCumple: 0,
+          tiempoTotal: 0,
+        };
+      }
+      resumen[nombre].total += 1;
+      resumen[nombre].tiempoTotal += op.Tiempo;
+      if (op.Cumple) resumen[nombre].cumple += 1;
+      else resumen[nombre].noCumple += 1;
+    });
+
+    return Object.values(resumen)
+      .map((r) => ({
+        ...r,
+        promedio: (r.tiempoTotal / r.total).toFixed(2),
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [datos]);
+
+  const operadoresUnicos = React.useMemo(
+    () => resumenOperadores.map((r) => r.nombre),
+    [resumenOperadores],
+  );
+
+  const handleSort = (key: keyof Operacion) => {
+    let direction: "asc" | "desc" = "asc";
+    if (sortConfig.key === key && sortConfig.direction === "asc") {
+      direction = "desc";
+    }
+    setSortConfig({ key, direction });
+    setCurrentPage(1);
+  };
+
+  const processedData = React.useMemo(() => {
+    let filtered = datos;
+    if (filterOperador !== "todos") {
+      filtered = filtered.filter(
+        (op) => (op.Operador || "Sin asignar") === filterOperador,
+      );
+    }
+
+    if (sortConfig.key) {
+      filtered = [...filtered].sort((a, b) => {
+        let aValue = a[sortConfig.key!];
+        let bValue = b[sortConfig.key!];
+
+        if (sortConfig.key === "Operador") {
+          aValue = aValue || "Sin asignar";
+          bValue = bValue || "Sin asignar";
+        }
+
+        if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
+        if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return filtered;
+  }, [datos, filterOperador, sortConfig]);
+
+  // --- CORRECCIÓN 1: La paginación ahora usa `processedData` en lugar de `datos` ---
+  const totalPages = Math.ceil(processedData.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedData = processedData.slice(startIndex, startIndex + itemsPerPage);
+
+  const handleExportExcel = () => {
+    // --- CORRECCIÓN 2: Validamos contra `processedData` ---
+    if (processedData.length === 0) return toast.error("No hay datos para exportar");
+
+    // --- CORRECCIÓN 3: Mapeamos `processedData` ---
+    const dataToExport = processedData.map((op) => ({
+      "Fecha Operación": format(
+        new Date(op["Fecha de la operación"]),
+        "yyyy-MM-dd HH:mm:ss",
+      ),
+      Operador: op.Operador || "Sin asignar",
+      Alias: op.Alias,
+      Jugador: op.Jugador,
+      Nivel: op.Nivel,
+      Cantidad: op.Cantidad,
+      Moneda: currency,
+      "Tiempo de Resolución (min)": op.Tiempo,
+      "SLA Cumplido": op.Cumple ? "Sí" : "No",
+    }));
+
+    const worksheet = xlsx.utils.json_to_sheet(dataToExport);
+    const workbook = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(workbook, worksheet, "Operaciones");
+
+    const fileName = `Retiros_${currency}_${format(date!, "dd-MM-yyyy")}.xlsx`;
+    xlsx.writeFile(workbook, fileName);
+    toast.success("Excel exportado correctamente");
+  };
+
+  const handleExportPDF = () => {
+    // --- CORRECCIÓN 4: Validamos contra `processedData` ---
+    if (processedData.length === 0) return toast.error("No hay datos para exportar");
+
+    const doc = new jsPDF("landscape");
+
+    doc.text(
+      `Reporte de Retiros - ${currency} - ${format(date!, "dd/MM/yyyy")}`,
+      14,
+      15,
+    );
+
+    // --- CORRECCIÓN 5: Mapeamos `processedData` ---
+    const tableData = processedData.map((op) => [
+      format(new Date(op["Fecha de la operación"]), "dd/MM HH:mm"),
+      op.Operador || "Sin asignar",
+      op.Alias,
+      op.Nivel,
+      `${op.Cantidad} ${currency}`,
+      `${op.Tiempo} min`,
+      op.Cumple ? "Sí" : "No",
+    ]);
+
+    autoTable(doc, {
+      startY: 20,
+      head: [["Fecha", "Operador", "Alias", "Nivel", "Monto", "Tiempo", "SLA"]],
+      body: tableData,
+      theme: "grid",
+      headStyles: { fillColor: [15, 23, 42] },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+    });
+
+    doc.save(`Retiros_${currency}_${format(date!, "dd-MM-yyyy")}.pdf`);
+    toast.success("PDF exportado correctamente");
+  };
+
+  // Cálculos para KPIs generales (Los dejamos apuntando a `datos` para que siempre muestren el resumen global del día)
+  const totalOperaciones = datos.length;
+  const cumplenSLA = datos.filter((d) => d.Cumple).length;
+  const porcentajeCumplimiento =
+    totalOperaciones > 0
+      ? ((cumplenSLA / totalOperaciones) * 100).toFixed(1)
+      : 0;
+  const promedioTiempo =
+    totalOperaciones > 0
+      ? (
+          datos.reduce((acc, curr) => acc + curr.Tiempo, 0) / totalOperaciones
+        ).toFixed(2)
+      : 0;
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto space-y-8">
+      {/* Cabecera y Filtros */}
+      <div className="flex flex-col md:flex-row justify-between md:items-end gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+            Panel de Rendimiento
+          </h1>
+          <p className="text-slate-500">
+            Métricas de retiros procesados en {currency}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-slate-700">
+            Fecha del Reporte:
+          </span>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant={"outline"}
+                className={cn(
+                  "w-[240px] justify-start text-left font-normal",
+                  !date && "text-muted-foreground",
+                )}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {date ? (
+                  format(date, "PPP", { locale: es })
+                ) : (
+                  <span>Selecciona fecha</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                mode="single"
+                selected={date}
+                onSelect={setDate}
+                initialFocus
+                locale={es}
+              />
+            </PopoverContent>
+          </Popover>
+          <Button
+            onClick={fetchReporte}
+            disabled={isLoading || !date}
+            variant="secondary"
+          >
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              "Actualizar"
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Tarjetas de Resumen (KPIs Generales) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">
+              Total Procesados
+            </CardTitle>
+            <Activity className="h-4 w-4 text-slate-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalOperaciones}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">
+              Cumplimiento SLA (&lt;30m)
+            </CardTitle>
+            <CheckSquare className="h-4 w-4 text-emerald-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-emerald-600">
+              {porcentajeCumplimiento}%
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium">
+              Tiempo Promedio
+            </CardTitle>
+            <Clock className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">
+              {promedioTiempo} min
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Gráfico de Tiempos */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Tiempos de Procesamiento (Todos los operadores)</CardTitle>
+        </CardHeader>
+        <CardContent className="h-[300px] w-full">
+          {datos.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={datos}
+                margin={{ top: 20, right: 30, left: 0, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis
+                  dataKey="Alias"
+                  stroke="#888888"
+                  tick={false}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  stroke="#888888"
+                  fontSize={12}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(value) => `${value}m`}
+                />
+                <Tooltip
+                  formatter={(value: number) => [`${value} min`, "Tiempo"]}
+                  labelFormatter={(label) => `Alias: ${label}`}
+                />
+                <ReferenceLine
+                  y={30}
+                  stroke="#ef4444"
+                  strokeDasharray="3 3"
+                  label={{
+                    position: "top",
+                    value: "SLA (30m)",
+                    fill: "#ef4444",
+                    fontSize: 12,
+                  }}
+                />
+                <Bar
+                  dataKey="Tiempo"
+                  radius={[4, 4, 0, 0]}
+                  shape={(props: any) => {
+                    const { fill, x, y, width, height, payload } = props;
+                    return (
+                      <rect
+                        x={x}
+                        y={y}
+                        width={width}
+                        height={height}
+                        fill={payload.Tiempo < 30 ? "#10b981" : "#f43f5e"}
+                        rx={4}
+                        ry={4}
+                      />
+                    );
+                  }}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-full flex items-center justify-center text-slate-500">
+              Sin datos
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Resumen por Operador */}
+      <Card className="border-primary/20 shadow-sm">
+        <CardHeader className="bg-slate-50/50 border-b">
+          <CardTitle className="text-lg">Rendimiento por Operador</CardTitle>
+          <CardDescription>
+            Métricas individuales de eficiencia para el día seleccionado.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-slate-50">
+                <TableHead className="font-semibold text-slate-800">
+                  Nombre del Agente
+                </TableHead>
+                <TableHead className="text-center">Total Retiros</TableHead>
+                <TableHead className="text-center text-emerald-600">
+                  Dentro de SLA
+                </TableHead>
+                <TableHead className="text-center text-rose-600">
+                  Fuera de SLA
+                </TableHead>
+                <TableHead className="text-center">
+                  Cumplimiento SLA Promedio
+                </TableHead>
+                <TableHead className="text-right">Tiempo Promedio</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {resumenOperadores.length > 0 ? (
+                resumenOperadores.map((op, idx) => (
+                  <TableRow key={idx}>
+                    <TableCell className="font-medium">{op.nombre}</TableCell>
+                    <TableCell className="text-center font-semibold">
+                      {op.total}
+                    </TableCell>
+                    <TableCell className="text-center">{op.cumple}</TableCell>
+                    <TableCell className="text-center">{op.noCumple}</TableCell>
+                    <TableCell className="text-center">
+                      {((op.cumple / op.total) * 100).toFixed(2)}%
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {op.promedio} min
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell
+                    colSpan={6}
+                    className="h-16 text-center text-slate-500"
+                  >
+                    Sin operadores registrados.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Tabla Principal con Filtros, Paginación y Exportación */}
+      <Card>
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <CardTitle>Registro Detallado</CardTitle>
+            <CardDescription>
+              Mostrando {paginatedData.length} de {processedData.length}{" "}
+              operaciones
+              {filterOperador !== "todos" && ` para ${filterOperador}`}.
+            </CardDescription>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Select
+              value={filterOperador}
+              onValueChange={(val) => {
+                setFilterOperador(val);
+                setCurrentPage(1); 
+              }}
+            >
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Filtrar por Operador" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos los operadores</SelectItem>
+                {operadoresUnicos.map((op, idx) => (
+                  <SelectItem key={idx} value={op}>
+                    {op}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <div className="h-6 w-px bg-slate-200 mx-1 hidden sm:block"></div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportExcel}
+              disabled={processedData.length === 0}
+              className="text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50"
+            >
+              <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportPDF}
+              disabled={processedData.length === 0}
+              className="text-rose-700 hover:text-rose-800 hover:bg-rose-50"
+            >
+              <FileText className="w-4 h-4 mr-2" /> PDF
+            </Button>
+          </div>
+        </CardHeader>
+
+        <CardContent className="p-0 border-t">
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="pl-6">
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleSort("Operador")}
+                    className="font-semibold px-2 -ml-2"
+                  >
+                    Operador <ArrowUpDown className="ml-2 h-4 w-4" />
+                  </Button>
+                </TableHead>
+                <TableHead>
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleSort("Fecha de la operación")}
+                    className="font-semibold px-2 -ml-2"
+                  >
+                    Fecha Hora <ArrowUpDown className="ml-2 h-4 w-4" />
+                  </Button>
+                </TableHead>
+                <TableHead>
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleSort("Alias")}
+                    className="font-semibold px-2 -ml-2"
+                  >
+                    Alias <ArrowUpDown className="ml-2 h-4 w-4" />
+                  </Button>
+                </TableHead>
+                <TableHead className="text-right">
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleSort("Cantidad")}
+                    className="font-semibold px-2 -ml-2 flex ml-auto"
+                  >
+                    Cantidad <ArrowUpDown className="ml-2 h-4 w-4" />
+                  </Button>
+                </TableHead>
+                <TableHead className="text-center">
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleSort("Cumple")}
+                    className="font-semibold px-2 -ml-2 mx-auto"
+                  >
+                    SLA <ArrowUpDown className="ml-2 h-4 w-4" />
+                  </Button>
+                </TableHead>
+                <TableHead className="text-right pr-6">
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleSort("Tiempo")}
+                    className="font-semibold px-2 -ml-2 flex ml-auto"
+                  >
+                    Tiempo (min) <ArrowUpDown className="ml-2 h-4 w-4" />
+                  </Button>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {paginatedData.length > 0 ? (
+                paginatedData.map((op) => (
+                  <TableRow key={op.id}>
+                    <TableCell className="pl-6 font-medium text-slate-700">
+                      {op.Operador || "Sin asignar"}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-slate-600">
+                      {format(
+                        new Date(op["Fecha de la operación"]),
+                        "dd MMM HH:mm",
+                        { locale: es },
+                      )}
+                    </TableCell>
+                    <TableCell>{op.Alias}</TableCell>
+                    <TableCell className="text-right font-semibold">
+                      {new Intl.NumberFormat("es-CL", {
+                        style: "currency",
+                        currency: currency,
+                      }).format(op.Cantidad)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <div className="flex justify-center">
+                        {op.Cumple ? (
+                          <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                        ) : (
+                          <XCircle className="h-5 w-5 text-rose-500" />
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right pr-6">
+                      {op.Tiempo}
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell
+                    colSpan={6}
+                    className="h-24 text-center text-slate-500"
+                  >
+                    {isLoading
+                      ? "Cargando datos..."
+                      : "Ningún registro encontrado."}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+
+          {/* Controles de Paginación */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-6 py-4 border-t bg-slate-50 rounded-b-lg">
+              <div className="text-sm text-slate-500">
+                Página {currentPage} de {totalPages}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronLeft className="w-4 h-4 mr-1" /> Anterior
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setCurrentPage((p) => Math.min(totalPages, p + 1))
+                  }
+                  disabled={currentPage === totalPages}
+                >
+                  Siguiente <ChevronRight className="w-4 h-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
