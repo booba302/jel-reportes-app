@@ -3,8 +3,9 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
-import { TopBar } from "@/components/TopBar"; // Importamos la barra
-import { CurrencyProvider } from "./context/CurrencyContext"; // Importamos el proveedor
+import { TopBar } from "@/components/TopBar"; 
+import { DashboardLayout } from "@/components/DashboardLayout"; // IMPORTAMOS EL NUEVO LAYOUT
+import { CurrencyProvider } from "./context/CurrencyContext";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -21,12 +22,15 @@ export default function RootLayout({
   return (
     <html lang="es" suppressHydrationWarning>
       <body className={`${inter.className} bg-slate-50 min-h-screen`} suppressHydrationWarning>
-        {/* Envolvemos toda la app en el proveedor de moneda */}
         <CurrencyProvider>
-          <TopBar />
-          <main>
-            {children}
-          </main>
+          
+          {/* Envolvemos el sistema en el nuevo DashboardLayout */}
+          <DashboardLayout>
+            <TopBar />
+            {/* children son tus páginas (Dashboard, Gestor, etc.) */}
+            {children} 
+          </DashboardLayout>
+
           <Toaster richColors closeButton position="bottom-right" />
         </CurrencyProvider>
       </body>

@@ -28,6 +28,7 @@ export function TopBar() {
         <Select 
           value={currency} 
           onValueChange={(value) => setCurrency(value as 'CLP' | 'PEN' | 'USD' | 'MXN')}
+          justify-end
         >
           <SelectTrigger className="w-[120px] font-bold">
             <SelectValue placeholder="Moneda" />
