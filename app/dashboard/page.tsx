@@ -104,11 +104,11 @@ function DashboardContent() {
   const itemsPerPage = 20;
 
   React.useEffect(() => {
-    const urlFecha = searchParams.get('fecha');
-    const urlMoneda = searchParams.get('moneda');
+    const urlFecha = searchParams.get("fecha");
+    const urlMoneda = searchParams.get("moneda");
 
     if (urlMoneda) {
-      setCurrency(urlMoneda as any); 
+      setCurrency(urlMoneda as any);
     }
     if (urlFecha) {
       setDate(new Date(urlFecha));
@@ -207,14 +207,19 @@ function DashboardContent() {
   const processedData = React.useMemo(() => {
     if (!sortConfig.key) return filteredDatos;
     return [...filteredDatos].sort((a, b) => {
-      let aValue = a[sortConfig.key!];
-      let bValue = b[sortConfig.key!];
-      
+      // Le indicamos a TypeScript que estos valores pueden ser comparables (any)
+      let aValue: any = a[sortConfig.key!];
+      let bValue: any = b[sortConfig.key!];
+
       if (sortConfig.key === "Operador") {
         aValue = aValue || "Autopago";
         bValue = bValue || "Autopago";
       }
-      
+
+      // Capa de seguridad extra: si algún otro campo viene vacío, lo tratamos como texto vacío
+      if (aValue === undefined || aValue === null) aValue = "";
+      if (bValue === undefined || bValue === null) bValue = "";
+
       if (aValue < bValue) return sortConfig.direction === "asc" ? -1 : 1;
       if (aValue > bValue) return sortConfig.direction === "asc" ? 1 : -1;
       return 0;
@@ -223,18 +228,23 @@ function DashboardContent() {
 
   // --- LÓGICA DE KPIs AJUSTADA ---
   const totalOperaciones = filteredDatos.length; // El total sigue incluyendo los autopagos
-  
+
   // Extraemos solo a los operadores humanos para no alterar el promedio de rendimiento
-  const operacionesHumanas = filteredDatos.filter(d => (d.Operador || "Autopago") !== "Autopago");
+  const operacionesHumanas = filteredDatos.filter(
+    (d) => (d.Operador || "Autopago") !== "Autopago",
+  );
   const totalHumanas = operacionesHumanas.length;
 
   const cumplenSLA = operacionesHumanas.filter((d) => d.Cumple).length;
-  const porcentajeCumplimiento = totalHumanas > 0
-      ? ((cumplenSLA / totalHumanas) * 100).toFixed(1)
-      : 0;
-      
-  const promedioTiempo = totalHumanas > 0
-      ? (operacionesHumanas.reduce((acc, curr) => acc + curr.Tiempo, 0) / totalHumanas).toFixed(2)
+  const porcentajeCumplimiento =
+    totalHumanas > 0 ? ((cumplenSLA / totalHumanas) * 100).toFixed(1) : 0;
+
+  const promedioTiempo =
+    totalHumanas > 0
+      ? (
+          operacionesHumanas.reduce((acc, curr) => acc + curr.Tiempo, 0) /
+          totalHumanas
+        ).toFixed(2)
       : 0;
   // --- FIN LÓGICA DE KPIs ---
 
@@ -247,7 +257,8 @@ function DashboardContent() {
       { Métrica: "Moneda", Valor: currency },
       {
         Métrica: "Filtro Aplicado",
-        Valor: filterOperador !== "todos" ? filterOperador : "Todos los operadores",
+        Valor:
+          filterOperador !== "todos" ? filterOperador : "Todos los operadores",
       },
       { Métrica: "Total Procesados (Inc. Autopago)", Valor: totalOperaciones },
       {
@@ -256,7 +267,7 @@ function DashboardContent() {
       },
       { Métrica: "Tiempo Promedio Equipo (min)", Valor: promedioTiempo },
     ];
-    
+
     const wsResumen = xlsx.utils.json_to_sheet(resumenGeneral);
     if (resumenOperadores.length > 0) {
       const operadoresExport = resumenOperadores.map((op) => ({
@@ -267,14 +278,23 @@ function DashboardContent() {
         "Cumplimiento (%)": `${((op.cumple / op.total) * 100).toFixed(2)}%`,
         "Tiempo Promedio (min)": op.promedio,
       }));
-      xlsx.utils.sheet_add_json(wsResumen, [{ "": "" }], { skipHeader: true, origin: -1 });
-      xlsx.utils.sheet_add_json(wsResumen, [{ "": "RENDIMIENTO DETALLADO" }], { skipHeader: true, origin: -1 });
+      xlsx.utils.sheet_add_json(wsResumen, [{ "": "" }], {
+        skipHeader: true,
+        origin: -1,
+      });
+      xlsx.utils.sheet_add_json(wsResumen, [{ "": "RENDIMIENTO DETALLADO" }], {
+        skipHeader: true,
+        origin: -1,
+      });
       xlsx.utils.sheet_add_json(wsResumen, operadoresExport, { origin: -1 });
     }
     xlsx.utils.book_append_sheet(workbook, wsResumen, "Resumen General");
-    
+
     const dataToExport = processedData.map((op) => ({
-      "Fecha Operación": format(new Date(op["Fecha de la operación"]), "yyyy-MM-dd HH:mm:ss"),
+      "Fecha Operación": format(
+        new Date(op["Fecha de la operación"]),
+        "yyyy-MM-dd HH:mm:ss",
+      ),
       Operador: op.Operador || "Autopago",
       Alias: op.Alias,
       Jugador: op.Jugador,
@@ -286,7 +306,7 @@ function DashboardContent() {
     }));
     const wsDetalle = xlsx.utils.json_to_sheet(dataToExport);
     xlsx.utils.book_append_sheet(workbook, wsDetalle, "Detalle de Operaciones");
-    
+
     const fileName = `Reporte_${currency}_${format(date!, "dd-MM-yyyy")}.xlsx`;
     xlsx.writeFile(workbook, fileName);
     toast.success("Excel gerencial exportado correctamente");
