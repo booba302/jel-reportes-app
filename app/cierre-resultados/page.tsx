@@ -399,7 +399,7 @@ export default function CierreMensualPage() {
                                     : "text-rose-600",
                               )}
                             >
-                              {rep.notaFinalMes.toFixed(1)}
+                              {rep.notaFinalMes.toFixed(2)}
                             </div>
                           </TableCell>
                         </TableRow>
