@@ -1,50 +1,62 @@
 // src/app/page.tsx
-'use client'; // Le dice a Next.js que este componente usa interactividad en el navegador
-
-import { useState } from 'react';
+import { Activity, BarChart3, TrendingUp } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function Home() {
-  const [datos, setDatos] = useState<any[]>([]);
-  const [cargando, setCargando] = useState(false);
-
-  const probarConexion = async () => {
-    setCargando(true);
-    try {
-      // Llamamos a la ruta de API que acabamos de crear
-      const res = await fetch('/api/reportes');
-      const json = await res.json();
-      
-      if (json.success) {
-        setDatos(json.data); // Guardamos los datos del Excel en el estado
-      } else {
-        alert('Error: ' + json.error);
-      }
-    } catch (error) {
-      alert('Error de conexión');
-    } finally {
-      setCargando(false);
-    }
-  };
-
   return (
-    <div className="p-10 font-sans max-w-4xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6">Prueba de Extracción de Reportes</h1>
-      
-      <button 
-        onClick={probarConexion}
-        disabled={cargando}
-        className="bg-black text-white px-6 py-2 rounded-md hover:bg-gray-800 disabled:bg-gray-400 transition-colors mb-6"
-      >
-        {cargando ? 'Extrayendo...' : 'Traer datos desde Google Drive'}
-      </button>
-      
-      {/* Aquí mostraremos el resultado crudo del Excel */}
-      <div className="bg-slate-100 p-6 rounded-lg overflow-auto max-h-[600px] border border-slate-200">
-        <pre className="text-sm">
-          {datos.length > 0 
-            ? JSON.stringify(datos, null, 2) 
-            : 'Haz clic en el botón para cargar las métricas.'}
-        </pre>
+    <div className="p-6 max-w-7xl mx-auto space-y-8">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+          Resumen General
+        </h1>
+        <p className="text-slate-500 mt-1">
+          Bienvenido al sistema. Aquí construiremos el dashboard global.
+        </p>
+      </div>
+
+      {/* Esqueleto de tarjetas para el futuro */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600">
+              Rendimiento Global
+            </CardTitle>
+            <Activity className="h-4 w-4 text-emerald-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-slate-300">
+              Próximamente
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600">
+              Operaciones del Mes
+            </CardTitle>
+            <BarChart3 className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-slate-300">
+              Próximamente
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600">
+              Mejor Operador
+            </CardTitle>
+            <TrendingUp className="h-4 w-4 text-amber-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-slate-300">
+              Próximamente
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

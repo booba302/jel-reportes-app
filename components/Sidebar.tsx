@@ -1,7 +1,7 @@
 // src/components/Sidebar.tsx
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -14,12 +14,11 @@ import {
   ChevronRight,
   X,
   Clock,
-  Trophy,
   CheckSquare,
+  Trophy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Definimos la estructura agrupada de tus menús
 const menuGroups = [
   {
     id: "diarios",
@@ -27,40 +26,40 @@ const menuGroups = [
     icon: CalendarDays,
     items: [
       {
-        label: "Cargar Reportes",
-        icon: UploadCloud,
-        href: "/reporte-diario",
-        color: "text-emerald-400",
-      },
-      {
-        label: "Panel de Rendimiento",
+        label: "Reporte diario",
         icon: LayoutDashboard,
-        href: "/dashboard",
+        href: "/reporte-diario",
         color: "text-sky-400",
       },
       {
-        label: "Gestor de Reportes Diarios",
+        label: "Gestor de reportes diarios",
         icon: FolderKanban,
-        href: "/gestor",
+        href: "/gestor-reporte-diario",
         color: "text-violet-400",
+      },
+      {
+        label: "Cargar archivos",
+        icon: UploadCloud,
+        href: "/cargar-archivos",
+        color: "text-emerald-400",
       },
     ],
   },
   {
     id: "evaluaciones",
-    title: "Evaluaciones Mensuales",
+    title: "Evaluaciones",
     icon: BarChart4,
     items: [
       {
         label: "Evaluación Diaria",
         icon: CheckSquare,
-        href: "/evaluacion",
+        href: "/evaluacion-diaria",
         color: "text-amber-400",
       },
       {
         label: "Cierre y Resultados",
         icon: Trophy,
-        href: "/cierre-mensual",
+        href: "/cierre-resultados",
         color: "text-amber-400",
       },
     ],
@@ -68,17 +67,31 @@ const menuGroups = [
 ];
 
 interface SidebarProps {
-  onMobileClose?: () => void; // Función para cerrar el menú en móviles
+  onMobileClose?: () => void;
 }
 
 export function Sidebar({ onMobileClose }: SidebarProps) {
   const pathname = usePathname();
 
-  // Estado para controlar qué menús están abiertos (por defecto abrimos el de diarios)
+  // Estado para controlar los menús abiertos
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    diarios: true,
-    mensuales: false,
+    diarios: false,
+    evaluaciones: false,
   });
+
+  // Efecto inteligente: Abre automáticamente el acordeón donde se encuentra la página actual
+  useEffect(() => {
+    const activeGroup = menuGroups.find((group) =>
+      group.items.some(
+        (item) =>
+          pathname === item.href || pathname.startsWith(`${item.href}/`),
+      ),
+    );
+
+    if (activeGroup) {
+      setOpenGroups((prev) => ({ ...prev, [activeGroup.id]: true }));
+    }
+  }, [pathname]);
 
   const toggleGroup = (groupId: string) => {
     setOpenGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
@@ -87,10 +100,10 @@ export function Sidebar({ onMobileClose }: SidebarProps) {
   return (
     <div className="space-y-4 py-4 flex flex-col h-full bg-slate-900 text-white shadow-xl">
       <div className="px-3 py-2 flex-1 overflow-y-auto">
-        {/* Cabecera y botón de cerrar en móvil */}
         <div className="flex items-center justify-between pl-3 mb-8 mt-2">
+          {/* Al hacer clic en el logo, te lleva al inicio / */}
           <Link
-            href="/dashboard"
+            href="/"
             className="flex items-center transition-opacity hover:opacity-80"
             onClick={onMobileClose}
           >
@@ -102,7 +115,6 @@ export function Sidebar({ onMobileClose }: SidebarProps) {
             </h1>
           </Link>
 
-          {/* Este botón solo aparece en móviles */}
           {onMobileClose && (
             <button
               onClick={onMobileClose}
@@ -113,14 +125,12 @@ export function Sidebar({ onMobileClose }: SidebarProps) {
           )}
         </div>
 
-        {/* Lista de Navegación Agrupada */}
         <div className="space-y-4">
           {menuGroups.map((group) => {
             const isOpen = openGroups[group.id];
 
             return (
               <div key={group.id} className="space-y-1">
-                {/* Botón del Acordeón (Grupo) */}
                 <button
                   onClick={() => toggleGroup(group.id)}
                   className="w-full flex items-center justify-between px-3 py-2 text-sm font-semibold text-slate-300 hover:text-white transition-colors"
@@ -136,9 +146,8 @@ export function Sidebar({ onMobileClose }: SidebarProps) {
                   )}
                 </button>
 
-                {/* Sub-items del menú */}
                 {isOpen && (
-                  <div className="pl-4 pr-2 space-y-1 mt-1">
+                  <div className="pl-4 pr-2 space-y-1 mt-1 animate-in slide-in-from-top-1 duration-200">
                     {group.items.map((item) => {
                       const isActive =
                         pathname === item.href ||
@@ -148,11 +157,11 @@ export function Sidebar({ onMobileClose }: SidebarProps) {
                         <Link
                           key={item.label}
                           href={item.href}
-                          onClick={onMobileClose} // Cierra el menú al hacer clic en móvil
+                          onClick={onMobileClose}
                           className={cn(
                             "text-sm group flex p-2 w-full justify-start font-medium cursor-pointer rounded-lg transition-all duration-200",
                             isActive
-                              ? "text-white bg-white/10 shadow-sm"
+                              ? "text-white bg-white/10 shadow-sm" // ESTE ES EL COLOR CUANDO ESTÁ ACTIVO
                               : "text-slate-400 hover:text-white hover:bg-white/5",
                           )}
                         >
@@ -175,7 +184,7 @@ export function Sidebar({ onMobileClose }: SidebarProps) {
 
       <div className="px-6 py-4 border-t border-slate-800">
         <p className="text-xs text-slate-500 font-medium">
-          Sistema de Retiros v1.1
+          Sistema de Retiros v1.2
         </p>
       </div>
     </div>
