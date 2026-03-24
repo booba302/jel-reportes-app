@@ -570,9 +570,9 @@ function DashboardContent() {
                   tickFormatter={(value) => `${value}m`}
                 />
                 <Tooltip
-                  formatter={(value: number) => [`${value} min`, "Tiempo"]}
-                  labelFormatter={(label) => `Alias: ${label}`}
-                />
+  formatter={(value: any) => [`${value} min`, "Tiempo"]}
+  labelFormatter={(label) => `Alias: ${label}`}
+/>
                 <ReferenceLine
                   y={30}
                   stroke="#ef4444"
