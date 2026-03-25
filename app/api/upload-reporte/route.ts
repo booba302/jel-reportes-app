@@ -77,8 +77,7 @@ export async function POST(request: Request) {
     const [year, month, day] = fechaTexto.split('-');
     
     // Reconstruimos la fecha a la medianoche para que coincida exactamente con la firma de búsqueda del Dashboard
-    const fechaReporteObj = new Date(Number(year), Number(month) - 1, Number(day));
-    const dateStr = fechaReporteObj.toISOString(); 
+    const dateStr = `${year}-${month}-${day}T00:00:00.000Z`;
 
     // 3. SISTEMA ANTI-DUPLICADOS (Pre-vuelo a Firebase)
     const operacionesRef = collection(db, 'operaciones_retiros'); 

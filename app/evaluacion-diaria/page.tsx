@@ -83,7 +83,10 @@ export default function EvaluacionDiariaPage() {
     setIsLoading(true);
 
     try {
-      const dateStr = date.toISOString();
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}T00:00:00.000Z`;
       const q = query(
         collection(db, "evaluaciones_diarias"),
         where("fecha", "==", dateStr),

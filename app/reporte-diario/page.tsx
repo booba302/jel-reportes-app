@@ -107,11 +107,11 @@ function DashboardContent() {
     const urlFecha = searchParams.get("fecha");
     const urlMoneda = searchParams.get("moneda");
 
-    if (urlMoneda) {
-      setCurrency(urlMoneda as any);
-    }
+    if (urlMoneda) setCurrency(urlMoneda as any);
     if (urlFecha) {
-      setDate(new Date(urlFecha));
+      // FIX: Extraemos YYYY-MM-DD para evitar el salto de zona horaria al cargar la URL
+      const [year, month, day] = urlFecha.split("T")[0].split("-");
+      setDate(new Date(Number(year), Number(month) - 1, Number(day)));
     }
   }, [searchParams, setCurrency]);
 
@@ -122,7 +122,11 @@ function DashboardContent() {
     setFilterOperador("todos");
 
     try {
-      const dateStr = date.toISOString();
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}T00:00:00.000Z`;
+      
       const q = query(
         collection(db, "operaciones_retiros"),
         where("Moneda", "==", currency),
