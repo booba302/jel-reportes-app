@@ -222,9 +222,6 @@ export default function GestorReportesPage() {
                           </>
                         )}
                       </Button>
-                      <TableCell className="pl-6 font-semibold text-slate-800">
-                        {formatearFechaLocal(rep.fechaReporte)}
-                      </TableCell>
                     </TableCell>
                   </TableRow>
                 ))
