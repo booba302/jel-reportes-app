@@ -133,8 +133,12 @@ export async function POST(request: Request) {
       year = partesFecha[2];
     }
 
-    // Generamos el string perfecto en UTC
-    const dateStr = `${year}-${month}-${day}T00:00:00.000Z`;
+    // FIX: Obligamos a que el mes y el día tengan siempre 2 dígitos (ej. "3" -> "03")
+    const paddedMonth = String(month).padStart(2, "0");
+    const paddedDay = String(day).padStart(2, "0");
+
+    // Generamos el string perfecto y estandarizado en UTC
+    const dateStr = `${year}-${paddedMonth}-${paddedDay}T00:00:00.000Z`;
     // --- FIN DETECCIÓN INTELIGENTE ---
 
     // 3. SISTEMA ANTI-DUPLICADOS

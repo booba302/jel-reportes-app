@@ -115,14 +115,17 @@ export default function GestorReportesPage() {
     params.set("moneda", monedaReporte);
 
     // Navegación limpia de Next.js manteniendo los parámetros
-    router.push(`/dashboard?${params.toString()}`);
+    router.push(`/reporte-diario?${params.toString()}`);
   };
 
   // Filtrado local por mes
   const reportesFiltrados = reportes.filter((r) => {
     if (!mesFiltro) return true;
-    const fecha = new Date(r.fechaReporte);
-    const mesReporte = format(fecha, "yyyy-MM");
+
+    // FIX: Extraemos los primeros 7 caracteres (YYYY-MM) directamente del string
+    // para que el navegador no le aplique la zona horaria local.
+    const mesReporte = r.fechaReporte.substring(0, 7);
+
     return mesReporte === mesFiltro;
   });
 
