@@ -83,10 +83,12 @@ export default function EvaluacionDiariaPage() {
     setIsLoading(true);
 
     try {
+      // FIX: Construimos la fecha estricta para leer
       const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
       const dateStr = `${year}-${month}-${day}T00:00:00.000Z`;
+
       const q = query(
         collection(db, "evaluaciones_diarias"),
         where("fecha", "==", dateStr),
@@ -107,19 +109,22 @@ export default function EvaluacionDiariaPage() {
     }
   };
 
-  React.useEffect(() => {
-    fetchEvaluaciones();
-  }, [date, currency]);
-
   const handleSincronizar = async () => {
     if (!date) return;
     setIsSyncing(true);
 
     try {
+      // FIX: Construimos la fecha estricta para enviar al backend a sincronizar
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      const dateStr = `${year}-${month}-${day}T00:00:00.000Z`;
+
       const response = await fetch("/api/sincronizar-evaluaciones", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fecha: date.toISOString(), moneda: currency }),
+        // Aquí enviamos el dateStr seguro en lugar del date.toISOString()
+        body: JSON.stringify({ fecha: dateStr, moneda: currency }),
       });
 
       const result = await response.json();
