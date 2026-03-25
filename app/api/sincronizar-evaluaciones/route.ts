@@ -1,9 +1,15 @@
 // src/app/api/sincronizar-evaluaciones/route.ts
-import { NextResponse } from 'next/server';
-import { collection, query, where, getDocs, writeBatch, doc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { NextResponse } from "next/server";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  writeBatch,
+  doc,
+} from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
-// Fórmulas de Excel traducidas a JavaScript
 const calcularPuntajeSLA = (porcentaje: number) => {
   if (porcentaje <= 100 && porcentaje > 90) return 10;
   if (porcentaje <= 90 && porcentaje > 80) return 9;
@@ -37,36 +43,54 @@ export async function POST(request: Request) {
     const { fecha, moneda } = await request.json();
 
     if (!fecha || !moneda) {
-      return NextResponse.json({ success: false, error: 'Faltan parámetros' }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "Faltan parámetros" },
+        { status: 400 },
+      );
     }
 
-    // 1. Buscamos todas las operaciones de ese día y moneda
+    // 1. Buscamos todas las operaciones
     const q = query(
-      collection(db, 'operaciones_retiros'),
-      where('Fecha del reporte', '==', fecha),
-      where('Moneda', '==', moneda)
+      collection(db, "operaciones_retiros"),
+      where("Fecha del reporte", "==", fecha),
+      where("Moneda", "==", moneda),
     );
     const snapshot = await getDocs(q);
 
     if (snapshot.empty) {
-      return NextResponse.json({ success: false, error: 'No hay retiros cargados para esta fecha y moneda.' }, { status: 404 });
+      return NextResponse.json(
+        {
+          success: false,
+          error: "No hay retiros cargados para esta fecha y moneda.",
+        },
+        { status: 404 },
+      );
     }
 
-    // 2. Agrupamos por operador humano (ignorando Autopago y vacíos)
-    const agrupado: Record<string, any> = {};
+    // --- NUEVO: Buscamos si ya existen evaluaciones para protegerlas ---
+    const qEval = query(
+      collection(db, "evaluaciones_diarias"),
+      where("fecha", "==", fecha),
+      where("moneda", "==", moneda),
+    );
+    const evalSnap = await getDocs(qEval);
+    const evaluacionesExistentes: Record<string, any> = {};
+    evalSnap.forEach((doc) => (evaluacionesExistentes[doc.id] = doc.data()));
 
-    snapshot.docs.forEach(docSnap => {
+    // 2. Agrupamos por operador
+    const agrupado: Record<string, any> = {};
+    snapshot.docs.forEach((docSnap) => {
       const data = docSnap.data();
       const operador = data.Operador || "Autopago";
 
-      if (operador === "Autopago") return; // Omitimos el sistema automático
+      if (operador === "Autopago") return;
 
       if (!agrupado[operador]) {
         agrupado[operador] = {
           total: 0,
           cumple: 0,
           noCumple: 0,
-          tiempoTotal: 0
+          tiempoTotal: 0,
         };
       }
       agrupado[operador].total += 1;
@@ -75,9 +99,8 @@ export async function POST(request: Request) {
       else agrupado[operador].noCumple += 1;
     });
 
-    // 3. Calculamos puntajes y preparamos el guardado en bloque (Batch)
     const batch = writeBatch(db);
-    const evaluacionesRef = collection(db, 'evaluaciones_diarias');
+    const evaluacionesRef = collection(db, "evaluaciones_diarias");
     let procesados = 0;
 
     for (const [nombre, stats] of Object.entries(agrupado)) {
@@ -87,12 +110,14 @@ export async function POST(request: Request) {
       const puntajeSla = calcularPuntajeSLA(porcentajeSla);
       const puntajeTiempo = calcularPuntajeTiempo(promedioTiempo);
 
-      // ID Único para evitar duplicar la evaluación del mismo operador el mismo día
-      const safeNombre = nombre.replace(/\s+/g, '_').toLowerCase();
-      const evalId = `${moneda}_${fecha.split('T')[0]}_${safeNombre}`;
+      const safeNombre = nombre.replace(/\s+/g, "_").toLowerCase();
+      const evalId = `${moneda}_${fecha.split("T")[0]}_${safeNombre}`;
       const docRef = doc(evaluacionesRef, evalId);
 
-      batch.set(docRef, {
+      const existente = evaluacionesExistentes[evalId];
+
+      // Datos automáticos del sistema que siempre se actualizan
+      const datosBase = {
         id: evalId,
         fecha,
         moneda,
@@ -104,30 +129,43 @@ export async function POST(request: Request) {
         tiempoPromedioMin: Number(promedioTiempo.toFixed(2)),
         puntajeSla,
         puntajeTiempo,
-        
-        // Campos Manuales por defecto (Fase 2)
-        puntualidad: 10,
-        proactividad: 10,
-        completoTurno: true,
-        tuvoInconveniente: false,
-        comentarioInconveniente: "",
-        
-        estado: "Pendiente", // Cambiará a "Confirmado" cuando lo valides en la tabla
-        ultimaActualizacion: new Date().toISOString()
-      }, { merge: true }); // merge: true actualiza sin borrar lo manual si ya existía
+        ultimaActualizacion: new Date().toISOString(),
+      };
+
+      if (existente) {
+        // FIX: Si ya existe, actualizamos los datos matemáticos PERO NO tocamos el estado ni los campos cualitativos
+        batch.set(docRef, datosBase, { merge: true });
+      } else {
+        // FIX: Si es nuevo, le damos todo el paquete por defecto
+        batch.set(
+          docRef,
+          {
+            ...datosBase,
+            puntualidad: 10,
+            proactividad: 10,
+            completoTurno: true,
+            tuvoInconveniente: false,
+            comentarioInconveniente: "",
+            estado: "Pendiente",
+          },
+          { merge: true },
+        );
+      }
 
       procesados++;
     }
 
     await batch.commit();
 
-    return NextResponse.json({ 
-      success: true, 
-      message: `Sincronización completa. Se generaron borradores para ${procesados} operadores.` 
+    return NextResponse.json({
+      success: true,
+      message: `Sincronización segura completada para ${procesados} operadores.`,
     });
-
   } catch (error) {
-    console.error('Error sincronizando evaluaciones:', error);
-    return NextResponse.json({ success: false, error: 'Error interno del servidor.' }, { status: 500 });
+    console.error("Error sincronizando evaluaciones:", error);
+    return NextResponse.json(
+      { success: false, error: "Error interno del servidor." },
+      { status: 500 },
+    );
   }
 }

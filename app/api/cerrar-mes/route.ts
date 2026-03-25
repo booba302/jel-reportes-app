@@ -12,7 +12,7 @@ import { db } from "@/lib/firebase";
 
 export async function POST(request: Request) {
   try {
-    const { mes } = await request.json(); // Formato esperado: "YYYY-MM" (ej: "2026-03")
+    const { mes } = await request.json(); // Formato esperado: "YYYY-MM"
 
     if (!mes) {
       return NextResponse.json(
@@ -21,41 +21,92 @@ export async function POST(request: Request) {
       );
     }
 
-    // Rango del mes para buscar en la base de datos
-    const fechaInicio = `${mes}-01T00:00:00.000Z`;
-    const fechaFin = `${mes}-31T23:59:59.999Z`;
+    // 1. RESTRICCIÓN DE TIEMPO: Un mes solo se puede cerrar si ya terminó
+    const today = new Date();
+    const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
 
-    // 1. Buscamos todas las evaluaciones de ese mes
-    const q = query(
-      collection(db, "evaluaciones_diarias"),
-      where("fecha", ">=", fechaInicio),
-      where("fecha", "<=", fechaFin),
-    );
-
-    const snapshot = await getDocs(q);
-
-    if (snapshot.empty) {
-      return NextResponse.json(
-        { success: false, error: "No hay datos para este mes." },
-        { status: 404 },
-      );
-    }
-
-    const evaluaciones = snapshot.docs.map((doc) => doc.data());
-
-    // 2. Validar que NO haya evaluaciones pendientes
-    const pendientes = evaluaciones.filter((ev) => ev.estado !== "Confirmado");
-    if (pendientes.length > 0) {
+    if (mes >= currentMonthStr) {
       return NextResponse.json(
         {
           success: false,
-          error: `Hay ${pendientes.length} evaluaciones diarias pendientes. Confírmalas todas antes de cerrar el mes.`,
+          error: `Aún no puedes cerrar ${mes}. Debes esperar al mes siguiente para realizar esta acción.`,
         },
         { status: 400 },
       );
     }
 
-    // 3. Agrupar la data por Operador
+    const fechaInicio = `${mes}-01T00:00:00.000Z`;
+    const fechaFin = `${mes}-31T23:59:59.999Z`;
+
+    // 2. BUSCAR DÍAS CARGADOS (Historial de archivos subidos)
+    const qHistorial = query(
+      collection(db, "historial_reportes"),
+      where("fechaReporte", ">=", fechaInicio),
+      where("fechaReporte", "<=", fechaFin),
+    );
+    const snapHistorial = await getDocs(qHistorial);
+    const diasCargadosPorMoneda: Record<string, Set<string>> = {};
+
+    snapHistorial.docs.forEach((doc) => {
+      const data = doc.data();
+      if (!diasCargadosPorMoneda[data.moneda])
+        diasCargadosPorMoneda[data.moneda] = new Set();
+      diasCargadosPorMoneda[data.moneda].add(data.fechaReporte);
+    });
+
+    // 3. BUSCAR EVALUACIONES DIARIAS
+    const qEval = query(
+      collection(db, "evaluaciones_diarias"),
+      where("fecha", ">=", fechaInicio),
+      where("fecha", "<=", fechaFin),
+    );
+    const snapEval = await getDocs(qEval);
+
+    if (snapEval.empty) {
+      return NextResponse.json(
+        { success: false, error: "No hay evaluaciones para este mes." },
+        { status: 404 },
+      );
+    }
+
+    const evaluaciones = snapEval.docs.map((doc) => doc.data());
+
+    // 4. VALIDAR PENDIENTES E INCONSISTENCIAS
+    const pendientes = evaluaciones.filter((ev) => ev.estado !== "Confirmado");
+    if (pendientes.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Hay operadores con evaluaciones pendientes. Confírmalas todas antes de cerrar el mes.`,
+        },
+        { status: 400 },
+      );
+    }
+
+    const diasEvaluadosPorMoneda: Record<string, Set<string>> = {};
+    evaluaciones.forEach((ev) => {
+      if (!diasEvaluadosPorMoneda[ev.moneda])
+        diasEvaluadosPorMoneda[ev.moneda] = new Set();
+      diasEvaluadosPorMoneda[ev.moneda].add(ev.fecha);
+    });
+
+    // CRUCE DE DATOS: Asegurarse de que coincida lo subido con lo evaluado
+    for (const moneda of Object.keys(diasCargadosPorMoneda)) {
+      const cargados = diasCargadosPorMoneda[moneda].size;
+      const evaluados = diasEvaluadosPorMoneda[moneda]?.size || 0;
+
+      if (cargados !== evaluados) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Inconsistencia en ${moneda}: Subiste Excels para ${cargados} días, pero solo evaluaste ${evaluados} días.`,
+          },
+          { status: 400 },
+        );
+      }
+    }
+
+    // 5. AGRUPAR Y CALCULAR PROMEDIOS MENSUALES
     const reporteOperadores: Record<string, any> = {};
 
     evaluaciones.forEach((ev) => {
@@ -87,14 +138,13 @@ export async function POST(request: Request) {
       if (ev.tuvoInconveniente) reporteOperadores[op].inconvenientes += 1;
     });
 
-    // 4. Calcular Promedios y Guardar en la nueva colección
+    // 6. GUARDAR EN LA BASE DE DATOS MENSULARES (BATCH)
     const batch = writeBatch(db);
     const mensualesRef = collection(db, "evaluaciones_mensuales");
     let procesados = 0;
 
     for (const [nombre, data] of Object.entries(reporteOperadores)) {
       const dias = data.diasTrabajados;
-
       const docId = `${mes}_${nombre.replace(/\s+/g, "_").toLowerCase()}`;
       const docRef = doc(mensualesRef, docId);
 
@@ -116,7 +166,6 @@ export async function POST(request: Request) {
         totalInconvenientes: data.inconvenientes,
         fechaCierre: new Date().toISOString(),
       });
-
       procesados++;
     }
 

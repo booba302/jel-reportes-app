@@ -1,9 +1,8 @@
-// src/app/cierre-mensual/page.tsx
+// src/app/cierre-resultados/page.tsx
 "use client";
 
 import * as React from "react";
 import { format } from "date-fns";
-import { es } from "date-fns/locale";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
@@ -17,6 +16,7 @@ import {
   TrendingUp,
   Clock,
   Target,
+  CalendarOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -44,15 +44,21 @@ export default function CierreMensualPage() {
   const [isLoading, setIsLoading] = React.useState(false);
   const [isClosing, setIsClosing] = React.useState(false);
 
-  // Estados de datos
   const [estadoAuditoria, setEstadoAuditoria] = React.useState<any>(null);
   const [reportesMensuales, setReportesMensuales] = React.useState<any[]>([]);
   const [mesCerrado, setMesCerrado] = React.useState(false);
+  const [mesYaTermino, setMesYaTermino] = React.useState(false);
 
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      // 1. Verificar si el mes ya está cerrado (Buscamos en evaluaciones_mensuales)
+      // 1. Validar restricción de tiempo
+      const today = new Date();
+      const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+      const haTerminado = mesActual < currentMonthStr;
+      setMesYaTermino(haTerminado);
+
+      // 2. Verificar si ya está cerrado oficialmente
       const qMensual = query(
         collection(db, "evaluaciones_mensuales"),
         where("mes", "==", mesActual),
@@ -62,48 +68,95 @@ export default function CierreMensualPage() {
       if (!snapMensual.empty) {
         setMesCerrado(true);
         const dataMensual = snapMensual.docs.map((d) => d.data());
-        // Ordenamos por la nota final más alta para armar el podium
         dataMensual.sort((a, b) => b.notaFinalMes - a.notaFinalMes);
         setReportesMensuales(dataMensual);
         setEstadoAuditoria(null);
       } else {
-        // 2. Si no está cerrado, revisamos el estado de las evaluaciones diarias
+        // 3. Si no está cerrado, cruzamos datos (Cargados vs Evaluados)
         setMesCerrado(false);
         setReportesMensuales([]);
 
         const fechaInicio = `${mesActual}-01T00:00:00.000Z`;
         const fechaFin = `${mesActual}-31T23:59:59.999Z`;
+
+        const qHistorial = query(
+          collection(db, "historial_reportes"),
+          where("fechaReporte", ">=", fechaInicio),
+          where("fechaReporte", "<=", fechaFin),
+        );
+        const snapHistorial = await getDocs(qHistorial);
+
         const qDiarias = query(
           collection(db, "evaluaciones_diarias"),
           where("fecha", ">=", fechaInicio),
           where("fecha", "<=", fechaFin),
         );
-
         const snapDiarias = await getDocs(qDiarias);
 
         const resumenMonedas: Record<
           string,
-          { total: number; confirmados: number }
+          {
+            diasCargados: Set<string>;
+            diasEvaluados: Set<string>;
+            fechasConPendientes: Set<string>;
+          }
         > = {};
-        let totalPendientes = 0;
 
+        // A. Almacenar días cargados desde los Excels
+        snapHistorial.docs.forEach((doc) => {
+          const data = doc.data();
+          if (!resumenMonedas[data.moneda])
+            resumenMonedas[data.moneda] = {
+              diasCargados: new Set(),
+              diasEvaluados: new Set(),
+              fechasConPendientes: new Set(),
+            };
+          resumenMonedas[data.moneda].diasCargados.add(data.fechaReporte);
+        });
+
+        // B. Almacenar el estatus de las evaluaciones diarias
         snapDiarias.docs.forEach((doc) => {
           const data = doc.data();
-          if (!resumenMonedas[data.moneda]) {
-            resumenMonedas[data.moneda] = { total: 0, confirmados: 0 };
-          }
-          resumenMonedas[data.moneda].total += 1;
+          if (!resumenMonedas[data.moneda])
+            resumenMonedas[data.moneda] = {
+              diasCargados: new Set(),
+              diasEvaluados: new Set(),
+              fechasConPendientes: new Set(),
+            };
+
           if (data.estado === "Confirmado") {
-            resumenMonedas[data.moneda].confirmados += 1;
+            resumenMonedas[data.moneda].diasEvaluados.add(data.fecha);
           } else {
-            totalPendientes += 1;
+            resumenMonedas[data.moneda].fechasConPendientes.add(data.fecha);
           }
         });
 
+        // C. Formatear para la UI
+        const monedasUI: Record<string, any> = {};
+        let totalInconsistencias = 0;
+
+        Object.entries(resumenMonedas).forEach(([moneda, stats]) => {
+          const totalCargados = stats.diasCargados.size;
+          // Un día solo se considera Evaluado si no tiene a ningún operador pendiente en esa fecha
+          const totalEvaluadosLimpios = [...stats.diasEvaluados].filter(
+            (fecha) => !stats.fechasConPendientes.has(fecha),
+          ).length;
+
+          const completado =
+            totalCargados > 0 && totalCargados === totalEvaluadosLimpios;
+          if (!completado) totalInconsistencias++;
+
+          monedasUI[moneda] = {
+            cargados: totalCargados,
+            evaluados: totalEvaluadosLimpios,
+            completado,
+          };
+        });
+
         setEstadoAuditoria({
-          monedas: resumenMonedas,
-          totalPendientes,
-          hayDatos: !snapDiarias.empty,
+          monedas: monedasUI,
+          totalInconsistencias,
+          hayDatos: Object.keys(monedasUI).length > 0,
         });
       }
     } catch (error) {
@@ -121,7 +174,7 @@ export default function CierreMensualPage() {
   const handleCerrarMes = async () => {
     if (
       !confirm(
-        `¿Estás seguro de cerrar el mes ${mesActual}? Esta acción calculará los promedios definitivos y no se podrá deshacer.`,
+        `¿Estás seguro de cerrar el mes ${mesActual}? Esta acción generará los promedios definitivos y no se puede deshacer.`,
       )
     )
       return;
@@ -137,9 +190,9 @@ export default function CierreMensualPage() {
 
       if (result.success) {
         toast.success("Mes Cerrado", { description: result.message });
-        await fetchData(); // Recargamos para ver la tabla definitiva
+        await fetchData();
       } else {
-        toast.error("No se pudo cerrar el mes", { description: result.error });
+        toast.error("Cierre denegado", { description: result.error });
       }
     } catch (error) {
       toast.error("Error de red.");
@@ -148,7 +201,6 @@ export default function CierreMensualPage() {
     }
   };
 
-  // Componente interno para mostrar el resumen de auditoría
   const renderAuditoria = () => {
     if (!estadoAuditoria) return null;
 
@@ -157,13 +209,15 @@ export default function CierreMensualPage() {
         <Card className="bg-slate-50 border-dashed border-2">
           <CardContent className="flex flex-col items-center justify-center p-10 text-slate-500">
             <CalendarDays className="w-10 h-10 mb-3 text-slate-300" />
-            <p>No hay evaluaciones sincronizadas para {mesActual}</p>
+            <p>No se han cargado archivos para el periodo {mesActual}</p>
           </CardContent>
         </Card>
       );
     }
 
-    const estaListo = estadoAuditoria.totalPendientes === 0;
+    const inconsistencias = estadoAuditoria.totalInconsistencias > 0;
+    // El sistema solo está listo si NO hay inconsistencias Y el mes ya terminó
+    const estaListo = !inconsistencias && mesYaTermino;
 
     return (
       <Card
@@ -181,38 +235,50 @@ export default function CierreMensualPage() {
             ) : (
               <AlertCircle className="text-amber-500" />
             )}
-            Estado de la Auditoría
+            Auditoría de Cierre
           </CardTitle>
           <CardDescription>
-            {estaListo
-              ? "Todas las evaluaciones diarias han sido confirmadas. El mes está listo para cerrarse."
-              : `Aún tienes ${estadoAuditoria.totalPendientes} evaluaciones diarias pendientes por calificar.`}
+            {inconsistencias
+              ? "Debes completar las evaluaciones diarias para igualar los reportes cargados."
+              : !mesYaTermino
+                ? "Las métricas están perfectas, pero debes esperar al mes siguiente para oficializar el cierre."
+                : "Todo está evaluado correctamente. El mes está listo para cerrarse."}
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             {Object.entries(estadoAuditoria.monedas).map(
               ([moneda, stats]: [string, any]) => {
-                const completado = stats.confirmados === stats.total;
                 return (
-                  <div key={moneda} className="p-4 rounded-lg border bg-white">
+                  <div
+                    key={moneda}
+                    className={cn(
+                      "p-4 rounded-lg border",
+                      stats.completado
+                        ? "bg-white border-emerald-100"
+                        : "bg-amber-50 border-amber-200",
+                    )}
+                  >
                     <div className="text-sm font-semibold text-slate-500 mb-1">
                       Moneda {moneda}
                     </div>
-                    <div className="text-2xl font-bold text-slate-800">
-                      {stats.confirmados}{" "}
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-3xl font-bold text-slate-800">
+                        {stats.evaluados}
+                      </span>
                       <span className="text-lg text-slate-400 font-normal">
-                        / {stats.total}
+                        / {stats.cargados}
                       </span>
                     </div>
-                    <div
-                      className={cn(
-                        "text-xs font-medium mt-1",
-                        completado ? "text-emerald-600" : "text-amber-600",
-                      )}
-                    >
-                      {completado ? "Completado" : "Pendiente"}
+                    <div className="text-xs text-slate-500 mt-1 uppercase tracking-wider">
+                      Días Evaluados
                     </div>
+
+                    {!stats.completado && stats.cargados > 0 && (
+                      <div className="text-xs font-semibold text-rose-600 mt-2">
+                        Faltan {stats.cargados - stats.evaluados} días
+                      </div>
+                    )}
                   </div>
                 );
               },
@@ -223,18 +289,23 @@ export default function CierreMensualPage() {
             onClick={handleCerrarMes}
             disabled={!estaListo || isClosing}
             className={cn(
-              "w-full h-12 text-lg",
+              "w-full h-12 text-lg transition-all",
               estaListo
-                ? "bg-emerald-600 hover:bg-emerald-700"
-                : "bg-slate-300 text-slate-500",
+                ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                : "bg-slate-100 text-slate-400 border border-slate-200",
             )}
           >
             {isClosing ? (
               <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+            ) : !mesYaTermino && !inconsistencias ? (
+              <CalendarOff className="w-5 h-5 mr-2" />
             ) : (
               <Lock className="w-5 h-5 mr-2" />
             )}
-            Generar Promedios y Cerrar Mes
+
+            {!mesYaTermino && !inconsistencias
+              ? "El cierre estará disponible el próximo mes"
+              : "Generar Promedios y Cerrar Mes"}
           </Button>
         </CardContent>
       </Card>
@@ -243,7 +314,6 @@ export default function CierreMensualPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8">
-      {/* Cabecera */}
       <div className="flex flex-col md:flex-row justify-between md:items-end gap-4 bg-white p-5 rounded-lg border shadow-sm">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">
@@ -273,13 +343,10 @@ export default function CierreMensualPage() {
         </div>
       ) : (
         <>
-          {/* Si el mes NO está cerrado, mostramos los semáforos */}
           {!mesCerrado && renderAuditoria()}
 
-          {/* Si el mes SI está cerrado, mostramos los resultados definitivos */}
           {mesCerrado && reportesMensuales.length > 0 && (
             <div className="space-y-6 animate-in fade-in duration-500">
-              {/* PODIUM: Empleado del Mes */}
               <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-xl p-8 text-white shadow-xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 p-8 opacity-10">
                   <Trophy className="w-40 h-40" />
@@ -295,7 +362,7 @@ export default function CierreMensualPage() {
                     <div className="text-4xl font-extrabold">
                       {reportesMensuales[0].operador}
                     </div>
-                    <div className="flex items-center gap-4 mt-3 text-slate-300 text-sm">
+                    <div className="flex flex-wrap items-center gap-4 mt-3 text-slate-300 text-sm">
                       <span className="flex items-center">
                         <Target className="w-4 h-4 mr-1 text-emerald-400" />{" "}
                         Nota: {reportesMensuales[0].notaFinalMes}/10
@@ -313,7 +380,6 @@ export default function CierreMensualPage() {
                 </div>
               </div>
 
-              {/* TABLA DE RESULTADOS MENSUALES */}
               <Card>
                 <CardHeader>
                   <CardTitle>Resultados Finales - {mesActual}</CardTitle>
@@ -321,12 +387,15 @@ export default function CierreMensualPage() {
                     Promedios consolidados de todas las monedas operadas.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="p-0">
-                  <Table>
+                <CardContent className="p-0 overflow-x-auto">
+                  <Table className="min-w-[1000px]">
                     <TableHeader className="bg-slate-50">
                       <TableRow>
                         <TableHead className="pl-6 font-semibold">
                           Operador
+                        </TableHead>
+                        <TableHead className="text-center">
+                          Días Trabajados
                         </TableHead>
                         <TableHead className="text-center">
                           SLA Promedio
@@ -361,6 +430,9 @@ export default function CierreMensualPage() {
                             <div className="text-xs text-slate-500">
                               {rep.totalRetiros} retiros
                             </div>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            {rep.diasTrabajados}
                           </TableCell>
                           <TableCell className="text-center font-medium text-emerald-600">
                             {rep.promedioSlaPct}%
@@ -399,7 +471,7 @@ export default function CierreMensualPage() {
                                     : "text-rose-600",
                               )}
                             >
-                              {rep.notaFinalMes.toFixed(2)}
+                              {rep.notaFinalMes.toFixed(1)}
                             </div>
                           </TableCell>
                         </TableRow>

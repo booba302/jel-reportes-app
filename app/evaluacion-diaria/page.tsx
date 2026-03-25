@@ -245,6 +245,7 @@ export default function EvaluacionDiariaPage() {
                 onSelect={setDate}
                 initialFocus
                 locale={es}
+                required // <-- ESTO EVITA QUE LA FECHA SE BORRE AL HACERLE CLIC OTRA VEZ
               />
             </PopoverContent>
           </Popover>
