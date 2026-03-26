@@ -29,10 +29,10 @@ function CurrencySelector() {
     return ["PEN", "CLP", "MXN", "USD"]; // Internacional por defecto para los demás
   }, [rol]);
 
-  // 2. Efecto de seguridad: Si la moneda actual no está en su lista permitida, lo cambiamos a la primera que sí tenga
+// 2. Efecto de seguridad: Si la moneda actual no está en su lista permitida, lo cambiamos a la primera que sí tenga
   useEffect(() => {
     if (monedasPermitidas.length > 0 && !monedasPermitidas.includes(currency)) {
-      setCurrency(monedasPermitidas[0]);
+      setCurrency(monedasPermitidas[0] as any); // <-- Solo agregamos "as any" aquí
     }
   }, [monedasPermitidas, currency, setCurrency]);
 
