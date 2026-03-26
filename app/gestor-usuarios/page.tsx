@@ -680,31 +680,6 @@ export default function GestorUsuariosPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Confirmar Contraseña
-                </label>
-                <input
-                  type="password"
-                  required
-                  value={resetData.confirmPassword}
-                  onChange={(e) =>
-                    setResetData({
-                      ...resetData,
-                      confirmPassword: e.target.value,
-                    })
-                  }
-                  className={cn(
-                    "block w-full px-3 py-2 text-sm border rounded-lg outline-none focus:ring-2",
-                    resetData.confirmPassword &&
-                      resetData.password !== resetData.confirmPassword
-                      ? "border-rose-500 focus:ring-rose-500"
-                      : "border-slate-300 focus:ring-amber-500",
-                  )}
-                  placeholder="••••••••"
-                />
-              </div>
-
               {resetData.password && (
                 <div className="space-y-1">
                   <div className="flex justify-between text-[10px] text-slate-500 font-medium">
