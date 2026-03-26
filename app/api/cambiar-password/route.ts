@@ -22,6 +22,11 @@ export async function POST(request: Request) {
       password: newPassword,
     });
 
+    const adminDb = (await import('@/lib/firebaseAdmin')).adminDb;
+    await adminDb.collection('usuarios').doc(uid).update({
+      debeCambiarPassword: true
+    });
+
     return NextResponse.json({
       success: true,
       message: "La contraseña ha sido actualizada exitosamente.",

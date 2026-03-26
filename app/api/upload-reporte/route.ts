@@ -9,7 +9,6 @@ import {
   where,
   getDocs,
   limit,
-  setDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
@@ -39,7 +38,6 @@ function transformarFila(
 
   const logUserCrudo = fila["Log user"] || "";
 
-  // Si viene vacío, asignamos "Autopago", si no, formateamos el nombre
   let operadorFormateado = "Autopago";
   if (logUserCrudo.trim() !== "") {
     operadorFormateado = logUserCrudo
@@ -101,72 +99,97 @@ export async function POST(request: Request) {
       );
     }
 
-    // --- NUEVO: DETECCIÓN INTELIGENTE DE FECHA (Modo Dominante) ---
-    const conteoFechas: Record<string, number> = {};
-    let fechaMasFrecuente = "";
-    let maxCount = 0;
+    // --- NUEVO: AGRUPACIÓN POR FECHAS ---
+    const reportesAgrupados: Record<string, any[]> = {};
 
     for (const fila of filasValidas) {
-      // Extraemos solo la fecha ignorando la hora
-      let fechaTexto = String(fila["Fecha de la operación"]).split(" ")[0];
-      // Cambiamos slashes por guiones por si el Excel viene con formato 2026/03/01
-      fechaTexto = fechaTexto.replace(/\//g, "-");
+      let fechaTexto = String(fila["Fecha de la operación"])
+        .split(" ")[0]
+        .replace(/\//g, "-");
 
-      conteoFechas[fechaTexto] = (conteoFechas[fechaTexto] || 0) + 1;
-      if (conteoFechas[fechaTexto] > maxCount) {
-        maxCount = conteoFechas[fechaTexto];
-        fechaMasFrecuente = fechaTexto;
+      const partesFecha = fechaTexto.split("-");
+      let year, month, day;
+
+      if (partesFecha[0].length === 4) {
+        year = partesFecha[0];
+        month = partesFecha[1];
+        day = partesFecha[2];
+      } else {
+        day = partesFecha[0];
+        month = partesFecha[1];
+        year = partesFecha[2];
+      }
+
+      const paddedMonth = String(month).padStart(2, "0");
+      const paddedDay = String(day).padStart(2, "0");
+      const dateStr = `${year}-${paddedMonth}-${paddedDay}T00:00:00.000Z`;
+
+      if (!reportesAgrupados[dateStr]) {
+        reportesAgrupados[dateStr] = [];
+      }
+      reportesAgrupados[dateStr].push(fila);
+    }
+
+    const fechasProcesadas: string[] = [];
+    const fechasDuplicadas: string[] = [];
+    const operacionesRef = collection(db, "operaciones_retiros");
+
+    const todasLasOperacionesNuevas = [];
+    const historialesNuevos = [];
+
+    // --- VERIFICACIÓN Y PROCESAMIENTO POR DÍA ---
+    for (const [dateStr, filasDeLaFecha] of Object.entries(reportesAgrupados)) {
+      // Verificamos si ESTA fecha en particular ya existe
+      const q = query(
+        operacionesRef,
+        where("Moneda", "==", currency),
+        where("Fecha del reporte", "==", dateStr),
+        limit(1),
+      );
+      const duplicateCheck = await getDocs(q);
+
+      if (!duplicateCheck.empty) {
+        fechasDuplicadas.push(dateStr.split("T")[0]); // Guardamos para avisarle al usuario
+      } else {
+        fechasProcesadas.push(dateStr.split("T")[0]);
+
+        // Transformamos las filas
+        const transformadas = filasDeLaFecha.map((fila) =>
+          transformarFila(fila, currency, dateStr),
+        );
+        todasLasOperacionesNuevas.push(...transformadas);
+
+        // Preparamos el historial para el Gestor
+        const [year, month, day] = dateStr.split("T")[0].split("-");
+        const historialId = `${currency}_${year}-${month}-${day}`;
+
+        historialesNuevos.push({
+          id: historialId,
+          fechaReporte: dateStr,
+          moneda: currency,
+          totalRegistros: transformadas.length,
+          subidoEl: new Date().toISOString(),
+        });
       }
     }
 
-    // Identificamos el orden (YYYY-MM-DD vs DD-MM-YYYY) para no equivocarnos
-    const partesFecha = fechaMasFrecuente.split("-");
-    let year, month, day;
-
-    if (partesFecha[0].length === 4) {
-      year = partesFecha[0];
-      month = partesFecha[1];
-      day = partesFecha[2];
-    } else {
-      day = partesFecha[0];
-      month = partesFecha[1];
-      year = partesFecha[2];
+    // Si TODAS las fechas del archivo ya existían
+    if (fechasProcesadas.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "DUPLICATE",
+          error: `Todos los datos de este archivo ya fueron procesados previamente en ${currency}.`,
+        },
+        { status: 400 },
+      );
     }
 
-    // FIX: Obligamos a que el mes y el día tengan siempre 2 dígitos (ej. "3" -> "03")
-    const paddedMonth = String(month).padStart(2, "0");
-    const paddedDay = String(day).padStart(2, "0");
-
-    // Generamos el string perfecto y estandarizado en UTC
-    const dateStr = `${year}-${paddedMonth}-${paddedDay}T00:00:00.000Z`;
-    // --- FIN DETECCIÓN INTELIGENTE ---
-
-    // 3. SISTEMA ANTI-DUPLICADOS
-    const operacionesRef = collection(db, "operaciones_retiros");
-    const q = query(
-      operacionesRef,
-      where("Moneda", "==", currency),
-      where("Fecha del reporte", "==", dateStr),
-      limit(1),
-    );
-
-    const duplicateCheck = await getDocs(q);
-    if (!duplicateCheck.empty) {
-      return NextResponse.json({
-        success: false,
-        code: "DUPLICATE",
-        error: `El reporte del ${day}/${month}/${year} ya fue procesado en ${currency}.`,
-      });
-    }
-
-    // 4. Transformar y guardar
-    const datosListosParaFirebase = filasValidas.map((fila) =>
-      transformarFila(fila, currency, dateStr),
-    );
-
+    // --- GUARDADO MASIVO (BATCH) ---
+    // 1. Guardar las operaciones en lotes de 500
     const chunks = [];
-    for (let i = 0; i < datosListosParaFirebase.length; i += 500) {
-      chunks.push(datosListosParaFirebase.slice(i, i + 500));
+    for (let i = 0; i < todasLasOperacionesNuevas.length; i += 500) {
+      chunks.push(todasLasOperacionesNuevas.slice(i, i + 500));
     }
 
     for (const chunk of chunks) {
@@ -178,23 +201,25 @@ export async function POST(request: Request) {
       await batch.commit();
     }
 
-    // 5. Guardar en el Historial de Reportes
-    const historialId = `${currency}_${year}-${month}-${day}`;
-    const historialRef = doc(db, "historial_reportes", historialId);
-
-    await setDoc(historialRef, {
-      id: historialId,
-      fechaReporte: dateStr,
-      moneda: currency,
-      totalRegistros: datosListosParaFirebase.length,
-      subidoEl: new Date().toISOString(),
+    // 2. Guardar los historiales (Uno por cada día detectado)
+    const batchHistorial = writeBatch(db);
+    historialesNuevos.forEach((historial) => {
+      const ref = doc(db, "historial_reportes", historial.id);
+      batchHistorial.set(ref, historial);
     });
+    await batchHistorial.commit();
+
+    // --- RESPUESTA DINÁMICA ---
+    let mensajeFinal = `Se procesaron exitosamente datos de ${fechasProcesadas.length} días.`;
+    if (fechasDuplicadas.length > 0) {
+      mensajeFinal += ` Se omitieron ${fechasDuplicadas.length} días que ya existían en la base de datos para no duplicarlos.`;
+    }
 
     return NextResponse.json({
       success: true,
-      message: `Reporte del ${day}/${month}/${year} guardado exitosamente.`,
+      message: mensajeFinal,
       monedaGuardada: currency,
-      totalRegistros: datosListosParaFirebase.length,
+      totalRegistros: todasLasOperacionesNuevas.length,
     });
   } catch (error) {
     console.error("Error procesando archivo:", error);

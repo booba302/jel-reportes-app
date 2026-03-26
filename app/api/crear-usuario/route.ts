@@ -26,6 +26,7 @@ export async function POST(request: Request) {
       nombre,
       rol,
       activo: true,
+      debeCambiarPassword: true,
       fechaCreacion: new Date().toISOString(),
     });
 

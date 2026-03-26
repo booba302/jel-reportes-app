@@ -1,12 +1,12 @@
 // src/context/AuthContext.tsx
-'use client';
+"use client";
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { auth, db } from '@/lib/firebase';
-import { onAuthStateChanged, User, signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { useRouter, usePathname } from 'next/navigation';
-import { Loader2 } from 'lucide-react';
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { auth, db } from "@/lib/firebase";
+import { onAuthStateChanged, User, signOut } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { useRouter, usePathname } from "next/navigation";
+import { Loader2 } from "lucide-react";
 
 interface AuthContextType {
   user: User | null;
@@ -35,7 +35,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(firebaseUser);
         // Buscamos el rol del usuario en Firestore
         try {
-          const userDoc = await getDoc(doc(db, 'usuarios', firebaseUser.uid));
+          const userDoc = await getDoc(doc(db, "usuarios", firebaseUser.uid));
           if (userDoc.exists()) {
             setUserData(userDoc.data());
           }
@@ -55,17 +55,30 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // Protección de rutas: Si no está logueado y no está en /login, lo expulsamos
   useEffect(() => {
     if (!loading) {
-      if (!user && pathname !== '/login') {
-        router.push('/login');
-      } else if (user && pathname === '/login') {
-        router.push('/'); // Si ya está logueado y va a /login, lo mandamos al inicio
+      if (!user && pathname !== "/login") {
+        router.push("/login");
+      } else if (user) {
+        // Si tiene la bandera encendida y no está en la página de cambio, lo obligamos a ir
+        if (
+          userData?.debeCambiarPassword &&
+          pathname !== "/cambiar-credenciales"
+        ) {
+          router.push("/cambiar-credenciales");
+        }
+        // Si no tiene la bandera, lo sacamos del login o del cambio de clave y lo llevamos al Dashboard
+        else if (
+          !userData?.debeCambiarPassword &&
+          (pathname === "/login" || pathname === "/cambiar-credenciales")
+        ) {
+          router.push("/");
+        }
       }
     }
-  }, [user, loading, pathname, router]);
+  }, [user, loading, pathname, router, userData]);
 
   const logout = async () => {
     await signOut(auth);
-    router.push('/login');
+    router.push("/login");
   };
 
   if (loading) {
@@ -77,7 +90,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }
 
   // Si no hay usuario y estamos en login, renderizamos la página (no el layout completo)
-  if (!user && pathname === '/login') {
+  if (!user && pathname === "/login") {
     return <>{children}</>;
   }
 

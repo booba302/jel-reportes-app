@@ -17,6 +17,8 @@ import {
   Lock,
   Shield,
   KeyRound,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -57,6 +59,8 @@ export default function GestorUsuariosPage() {
   const [isPasswordModalOpen, setIsPasswordModalOpen] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [selectedUser, setSelectedUser] = React.useState<Usuario | null>(null);
+  const [showPassword, setShowPassword] = React.useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
 
   // Formularios
   const [formData, setFormData] = React.useState({
@@ -382,40 +386,66 @@ export default function GestorUsuariosPage() {
                       <Lock className="h-4 w-4 text-slate-400" />
                     </div>
                     <input
-                      type="password"
+                      type={showPassword ? "text" : "password"}
                       required
                       value={formData.password}
                       onChange={(e) =>
                         setFormData({ ...formData, password: e.target.value })
                       }
-                      className="block w-full pl-10 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
+                      className="block w-full pl-10 pr-10 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
                       placeholder="••••••••"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
                   </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
                     Confirmar
                   </label>
-                  <input
-                    type="password"
-                    required
-                    value={formData.confirmPassword}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        confirmPassword: e.target.value,
-                      })
-                    }
-                    className={cn(
-                      "block w-full px-3 py-2 text-sm border rounded-lg outline-none focus:ring-2",
-                      formData.confirmPassword &&
-                        formData.password !== formData.confirmPassword
-                        ? "border-rose-500 focus:ring-rose-500"
-                        : "border-slate-300 focus:ring-primary",
-                    )}
-                    placeholder="••••••••"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showConfirmPassword ? "text" : "password"}
+                      required
+                      value={formData.confirmPassword}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          confirmPassword: e.target.value,
+                        })
+                      }
+                      className={cn(
+                        "block w-full pl-3 pr-10 py-2 text-sm border rounded-lg outline-none focus:ring-2",
+                        formData.confirmPassword &&
+                          formData.password !== formData.confirmPassword
+                          ? "border-rose-500 focus:ring-rose-500"
+                          : "border-slate-300 focus:ring-primary",
+                      )}
+                      placeholder="••••••••"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShowConfirmPassword(!showConfirmPassword)
+                      }
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                    >
+                      {showConfirmPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -522,15 +552,64 @@ export default function GestorUsuariosPage() {
                     <Lock className="h-4 w-4 text-slate-400" />
                   </div>
                   <input
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     required
                     value={resetData.password}
                     onChange={(e) =>
                       setResetData({ ...resetData, password: e.target.value })
                     }
-                    className="block w-full pl-10 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
+                    className="block w-full pl-10 pr-10 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
                     placeholder="••••••••"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Confirmar Contraseña
+                </label>
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? "text" : "password"}
+                    required
+                    value={resetData.confirmPassword}
+                    onChange={(e) =>
+                      setResetData({
+                        ...resetData,
+                        confirmPassword: e.target.value,
+                      })
+                    }
+                    className={cn(
+                      "block w-full pl-3 pr-10 py-2 text-sm border rounded-lg outline-none focus:ring-2",
+                      resetData.confirmPassword &&
+                        resetData.password !== resetData.confirmPassword
+                        ? "border-rose-500 focus:ring-rose-500"
+                        : "border-slate-300 focus:ring-amber-500",
+                    )}
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
                 </div>
               </div>
 
