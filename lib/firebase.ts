@@ -1,9 +1,8 @@
-// /lib/firebase.ts
+// src/lib/firebase.ts
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-// import { getAuth } from "firebase/auth"; // Descomenta si luego añades login
+import { getAuth } from "firebase/auth"; // 1. Agregamos esta importación
 
-// 1. Agregamos la configuración usando las variables de entorno
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -11,15 +10,12 @@ const firebaseConfig = {
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-  measurementId: process.env.NEXT_PUBLIC_MEASUREMENT_ID
 };
 
-// 2. Inicializamos Firebase de forma segura para Next.js
-// getApps().length comprueba si la app ya fue inicializada para evitar errores en recargas calientes de desarrollo
+// Evita inicializar la app múltiples veces en Next.js
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// 3. Inicializamos los servicios que vamos a usar (en este caso, la base de datos)
 const db = getFirestore(app);
+const auth = getAuth(app); // 2. Inicializamos la autenticación
 
-// Exportamos la instancia de la base de datos para usarla en cualquier parte de la app
-export { app, db };
+export { app, db, auth }; // 3. Exportamos auth para que el Contexto pueda usarlo

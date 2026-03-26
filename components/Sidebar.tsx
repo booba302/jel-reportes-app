@@ -13,11 +13,14 @@ import {
   ChevronDown,
   ChevronRight,
   X,
-  Clock,
   CheckSquare,
   Trophy,
+  LogOut,
+  User as UserIcon,
+  ShieldCheck
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/app/context/AuthContext";
 
 const menuGroups = [
   {
@@ -47,7 +50,7 @@ const menuGroups = [
   },
   {
     id: "evaluaciones",
-    title: "Evaluaciones",
+    title: "Evaluaciones Mensuales",
     icon: BarChart4,
     items: [
       {
@@ -66,42 +69,58 @@ const menuGroups = [
   },
 ];
 
+const adminGroup = {
+  id: "administracion",
+  title: "Administración",
+  icon: ShieldCheck,
+  items: [
+    {
+      label: "Gestor de Usuarios",
+      icon: UserIcon, // Asegúrate de importar Users de lucide-react arriba
+      href: "/gestor-usuarios",
+      color: "text-rose-400",
+    },
+  ],
+};
+
 interface SidebarProps {
   onMobileClose?: () => void;
 }
 
 export function Sidebar({ onMobileClose }: SidebarProps) {
   const pathname = usePathname();
-
-  // Estado para controlar los menús abiertos
+  const { logout, userData } = useAuth();
+  
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     diarios: false,
     evaluaciones: false,
+    administracion: false // Agregamos este al estado inicial
   });
 
-  // Efecto inteligente: Abre automáticamente el acordeón donde se encuentra la página actual
-  useEffect(() => {
-    const activeGroup = menuGroups.find((group) =>
-      group.items.some(
-        (item) =>
-          pathname === item.href || pathname.startsWith(`${item.href}/`),
-      ),
-    );
+  // Renderizado dinámico del menú: Añadimos el de admin solo si es admin
+  const visibleMenuGroups = userData?.rol === 'admin' 
+    ? [...menuGroups, adminGroup] 
+    : menuGroups;
 
+  useEffect(() => {
+    const activeGroup = visibleMenuGroups.find(group => 
+      group.items.some(item => pathname === item.href || pathname.startsWith(`${item.href}/`))
+    );
+    
     if (activeGroup) {
-      setOpenGroups((prev) => ({ ...prev, [activeGroup.id]: true }));
+      setOpenGroups(prev => ({ ...prev, [activeGroup.id]: true }));
     }
-  }, [pathname]);
+  }, [pathname, userData]);
 
   const toggleGroup = (groupId: string) => {
     setOpenGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
   };
 
   return (
-    <div className="space-y-4 py-4 flex flex-col h-full bg-slate-900 text-white shadow-xl">
-      <div className="px-3 py-2 flex-1 overflow-y-auto">
-        <div className="flex items-center justify-between pl-3 mb-8 mt-2">
-          {/* Al hacer clic en el logo, te lleva al inicio / */}
+    <div className="flex flex-col h-full bg-slate-900 text-white shadow-xl">
+      {/* Zona scrolleable del menú */}
+      <div className="px-3 py-6 flex-1 overflow-y-auto">
+        <div className="flex items-center justify-between pl-3 mb-8">
           <Link
             href="/"
             className="flex items-center transition-opacity hover:opacity-80"
@@ -126,7 +145,7 @@ export function Sidebar({ onMobileClose }: SidebarProps) {
         </div>
 
         <div className="space-y-4">
-          {menuGroups.map((group) => {
+          {visibleMenuGroups.map((group) => {
             const isOpen = openGroups[group.id];
 
             return (
@@ -161,7 +180,7 @@ export function Sidebar({ onMobileClose }: SidebarProps) {
                           className={cn(
                             "text-sm group flex p-2 w-full justify-start font-medium cursor-pointer rounded-lg transition-all duration-200",
                             isActive
-                              ? "text-white bg-white/10 shadow-sm" // ESTE ES EL COLOR CUANDO ESTÁ ACTIVO
+                              ? "text-white bg-white/10 shadow-sm"
                               : "text-slate-400 hover:text-white hover:bg-white/5",
                           )}
                         >
@@ -182,10 +201,32 @@ export function Sidebar({ onMobileClose }: SidebarProps) {
         </div>
       </div>
 
-      <div className="px-6 py-4 border-t border-slate-800">
-        <p className="text-xs text-slate-500 font-medium">
-          Sistema de Retiros v1.2
-        </p>
+      {/* NUEVO PIE DE PÁGINA: Perfil de usuario y Logout */}
+      <div className="p-4 border-t border-slate-800 bg-slate-950/50 flex-shrink-0">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center flex-shrink-0 border border-slate-700">
+              <UserIcon className="w-4 h-4 text-slate-400" />
+            </div>
+            <div className="flex flex-col flex-1 min-w-0">
+              {/* Leemos el nombre y rol directamente de Firebase */}
+              <span className="text-sm font-medium text-white truncate">
+                {userData?.nombre || "Cargando..."}
+              </span>
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold truncate">
+                {userData?.rol || "Usuario"}
+              </span>
+            </div>
+          </div>
+
+          <button
+            onClick={logout}
+            className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-400/10 rounded-lg transition-colors ml-2"
+            title="Cerrar sesión"
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
+        </div>
       </div>
     </div>
   );
