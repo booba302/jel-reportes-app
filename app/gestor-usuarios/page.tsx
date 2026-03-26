@@ -19,6 +19,8 @@ import {
   KeyRound,
   Eye,
   EyeOff,
+  Ban,
+  UserCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -189,6 +191,43 @@ export default function GestorUsuariosPage() {
     }
   };
 
+  const handleToggleEstado = async (usr: Usuario) => {
+    if (usr.rol === "admin") {
+      return toast.error("No puedes desactivar a un administrador.");
+    }
+
+    const nuevoEstado = !usr.activo; // Invertimos el estado actual
+
+    // Mostramos un loading en el toast mientras se comunica con el servidor
+    const toastId = toast.loading(
+      `${nuevoEstado ? "Activando" : "Desactivando"} usuario...`,
+    );
+
+    try {
+      const response = await fetch("/api/toggle-estado-usuario", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          uid: usr.id,
+          activo: nuevoEstado,
+          rol: usr.rol,
+        }),
+      });
+      const result = await response.json();
+
+      if (result.success) {
+        toast.success(result.message, { id: toastId });
+        await fetchUsuarios(); // Recargamos la tabla para ver el cambio
+      } else {
+        toast.error(result.error, { id: toastId });
+      }
+    } catch (error) {
+      toast.error("Error de red al intentar cambiar el estado.", {
+        id: toastId,
+      });
+    }
+  };
+
   const formatearRol = (rol: string) => {
     switch (rol) {
       case "admin":
@@ -289,18 +328,46 @@ export default function GestorUsuariosPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-right pr-6">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-slate-500 hover:text-amber-600 hover:bg-amber-50"
-                        title="Cambiar contraseña"
-                        onClick={() => {
-                          setSelectedUser(usr);
-                          setIsPasswordModalOpen(true);
-                        }}
-                      >
-                        <KeyRound className="w-4 h-4" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        {/* Botón de Bloqueo/Desbloqueo (Solo visible si NO es admin) */}
+                        {usr.rol !== "admin" && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className={
+                              usr.activo
+                                ? "text-slate-500 hover:text-rose-600 hover:bg-rose-50"
+                                : "text-slate-500 hover:text-emerald-600 hover:bg-emerald-50"
+                            }
+                            title={
+                              usr.activo
+                                ? "Desactivar acceso"
+                                : "Activar acceso"
+                            }
+                            onClick={() => handleToggleEstado(usr)}
+                          >
+                            {usr.activo ? (
+                              <Ban className="w-4 h-4" />
+                            ) : (
+                              <UserCheck className="w-4 h-4" />
+                            )}
+                          </Button>
+                        )}
+
+                        {/* Botón de Cambiar Contraseña */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-slate-500 hover:text-amber-600 hover:bg-amber-50"
+                          title="Cambiar contraseña"
+                          onClick={() => {
+                            setSelectedUser(usr);
+                            setIsPasswordModalOpen(true);
+                          }}
+                        >
+                          <KeyRound className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
