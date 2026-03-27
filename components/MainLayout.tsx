@@ -75,21 +75,19 @@ export default function MainLayout({
   }
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden w-full">
-      {/* SIDEBAR ESCRITORIO (Oculto en móviles) */}
-      <div className="hidden md:flex w-64 flex-shrink-0 h-full z-20">
+    <div className="flex h-screen bg-slate-50 overflow-hidden w-full print:h-auto print:overflow-visible print:bg-white">
+      {/* SIDEBAR ESCRITORIO (Oculto en móviles y al imprimir) */}
+      <div className="hidden md:flex w-64 flex-shrink-0 h-full z-20 print:hidden">
         <Sidebar />
       </div>
 
-      {/* SIDEBAR MÓVIL (Con fondo oscuro semi-transparente) */}
+      {/* SIDEBAR MÓVIL */}
       {isMobileMenuOpen && (
-        <div className="fixed inset-0 z-50 flex md:hidden">
-          {/* Fondo oscuro que cierra el menú al hacer clic */}
+        <div className="fixed inset-0 z-50 flex md:hidden print:hidden">
           <div
             className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm transition-opacity"
             onClick={() => setIsMobileMenuOpen(false)}
           />
-          {/* Contenedor del menú que entra por la izquierda */}
           <div className="relative flex-1 flex w-full max-w-[280px] animate-in slide-in-from-left duration-300">
             <Sidebar onMobileClose={() => setIsMobileMenuOpen(false)} />
           </div>
@@ -97,23 +95,35 @@ export default function MainLayout({
       )}
 
       {/* CONTENEDOR PRINCIPAL DERECHO */}
-      <div className="flex-1 flex flex-col h-screen overflow-hidden min-w-0">
+      <div className="flex-1 flex flex-col h-screen overflow-hidden min-w-0 print:h-auto print:overflow-visible print:block">
         {/* NAVBAR SUPERIOR */}
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between md:justify-end px-4 md:px-6 shadow-sm flex-shrink-0 z-10">
-          {/* Botón Hamburguesa (Solo visible en móviles) */}
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between md:justify-end px-4 md:px-6 shadow-sm flex-shrink-0 z-10 print:hidden">
           <button
             onClick={() => setIsMobileMenuOpen(true)}
             className="md:hidden p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 rounded-lg transition-colors"
           >
-            <Menu className="w-6 h-6" />
+            {/* Si no tienes importado Menu, asegúrate de tenerlo arriba: import { Menu } from 'lucide-react'; */}
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="4" x2="20" y1="12" y2="12" />
+              <line x1="4" x2="20" y1="6" y2="6" />
+              <line x1="4" x2="20" y1="18" y2="18" />
+            </svg>
           </button>
-
-          {/* Selector de Monedas */}
           <CurrencySelector />
         </header>
 
         {/* ÁREA PRINCIPAL DONDE CARGAN TUS VISTAS */}
-        <main className="flex-1 overflow-y-auto relative w-full">
+        <main className="flex-1 overflow-y-auto relative w-full print:overflow-visible print:h-auto print:block">
           {children}
         </main>
       </div>

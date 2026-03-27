@@ -115,7 +115,7 @@ export default function GestorReportesPage() {
     const params = new URLSearchParams();
     params.set("fecha", fechaStr);
     params.set("moneda", monedaReporte);
-    router.push(`/reporte-diario?${params.toString()}`);
+    router.push(`/auditoria-diaria?${params.toString()}`);
   };
 
   const reportesFiltrados = reportes.filter((r) => {
