@@ -115,7 +115,7 @@ export default function DashboardPage() {
 
         // 2. Consulta a Firebase (Si es GLOBAL, traemos todo; si no, filtramos por moneda)
         let q;
-        if (currency === "GLOBAL") {
+        if ((currency as string) === "GLOBAL") {
           q = query(collection(db, "operaciones_retiros"));
         } else {
           q = query(
@@ -307,7 +307,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
             <Activity className="w-8 h-8 text-primary" />{" "}
-            {currency === "GLOBAL"
+            {(currency as string) === "GLOBAL"
               ? "Visión Global (Todas las Monedas)"
               : "Visión de Rendimiento"}
           </h1>
@@ -414,7 +414,7 @@ export default function DashboardPage() {
                     className="text-2xl font-bold text-slate-800 truncate"
                     title={formatMoney(metrics.current.totalAmount, currency)}
                   >
-                    {currency === "GLOBAL"
+                    {(currency as string) === "GLOBAL"
                       ? "Múltiple"
                       : formatMoney(metrics.current.totalAmount, currency)}
                   </div>
