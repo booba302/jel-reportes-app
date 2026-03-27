@@ -4,6 +4,7 @@
 import * as React from 'react';
 import { UploadCloud, FileSpreadsheet, Loader2, CheckCircle, AlertCircle, Trash2, Play } from 'lucide-react';
 import { useCurrency } from '../context/CurrencyContext';
+import { useAuth } from '../context/AuthContext';
 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -20,8 +21,9 @@ interface QueuedFile {
   message?: string;
 }
 
-export default function ReporteDiarioPage() {
+export default function CargarArchivosPage() {
   const { currency } = useCurrency();
+  const { userData } = useAuth();
   const [archivos, setArchivos] = React.useState<QueuedFile[]>([]);
   const [isProcessing, setIsProcessing] = React.useState(false);
 
@@ -71,6 +73,7 @@ export default function ReporteDiarioPage() {
       const formData = new FormData();
       formData.append('file', item.file);
       formData.append('currency', currency);
+      formData.append('subidoPor', userData?.nombre || 'Usuario Desconocido');
 
       try {
         const response = await fetch('/api/upload-reporte', {

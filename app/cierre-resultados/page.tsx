@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/table";
 import { toast } from "sonner";
 
-export default function CierreMensualPage() {
+export default function CierreResultadosPage() {
   const [mesActual, setMesActual] = React.useState<string>(
     format(new Date(), "yyyy-MM"),
   );

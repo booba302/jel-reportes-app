@@ -831,7 +831,7 @@ function DashboardContent() {
   );
 }
 
-export default function DashboardPage() {
+export default function ReporteDiarioPage() {
   return (
     <React.Suspense
       fallback={

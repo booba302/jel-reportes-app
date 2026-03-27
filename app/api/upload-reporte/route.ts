@@ -1,15 +1,7 @@
 // src/app/api/upload-reporte/route.ts
 import { NextResponse } from "next/server";
 import * as xlsx from "xlsx";
-import {
-  writeBatch,
-  doc,
-  collection,
-  query,
-  where,
-  getDocs,
-  limit,
-} from "firebase/firestore";
+import { writeBatch, doc, collection } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
 interface FilaReporteCruda {
@@ -37,7 +29,6 @@ function transformarFila(
   const cumple = tiempo < 30;
 
   const logUserCrudo = fila["Log user"] || "";
-
   let operadorFormateado = "Autopago";
   if (logUserCrudo.trim() !== "") {
     operadorFormateado = logUserCrudo
@@ -49,18 +40,29 @@ function transformarFila(
       .join(" ");
   }
 
+  // CREACIÓN DEL ID DETERMINISTA (Moneda + Jugador + Timestamp Exacto)
+  // Ej: "2026-03-01 14:35:00" se convierte en "20260301143500"
+  const timestampLimpio = String(fila["Fecha de la operación"]).replace(
+    /[^0-9]/g,
+    "",
+  );
+  const idUnico = `${moneda}_${fila["Jugador"]}_${timestampLimpio}`;
+
   return {
-    "Fecha de la operación": fila["Fecha de la operación"],
-    Jugador: fila["Jugador"],
-    Alias: fila["Alias"],
-    Cantidad: fila["Cantidad"],
-    Nivel: fila["Nivel"],
-    "Update date": fila["Update date"],
-    Tiempo: tiempo,
-    Cumple: cumple,
-    Moneda: moneda,
-    "Fecha del reporte": fechaReporte,
-    Operador: operadorFormateado,
+    idUnico, // Lo retornamos temporalmente para usarlo como llave en Firestore
+    datos: {
+      "Fecha de la operación": fila["Fecha de la operación"],
+      Jugador: fila["Jugador"],
+      Alias: fila["Alias"],
+      Cantidad: fila["Cantidad"],
+      Nivel: fila["Nivel"],
+      "Update date": fila["Update date"],
+      Tiempo: tiempo,
+      Cumple: cumple,
+      Moneda: moneda,
+      "Fecha del reporte": fechaReporte,
+      Operador: operadorFormateado,
+    },
   };
 }
 
@@ -69,6 +71,7 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const currency = formData.get("currency") as string;
+    const subidoPor = formData.get('subidoPor') as string;
 
     if (!file) {
       return NextResponse.json(
@@ -99,14 +102,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // --- NUEVO: AGRUPACIÓN POR FECHAS ---
+    // AGRUPACIÓN POR FECHAS
     const reportesAgrupados: Record<string, any[]> = {};
 
     for (const fila of filasValidas) {
       let fechaTexto = String(fila["Fecha de la operación"])
         .split(" ")[0]
         .replace(/\//g, "-");
-
       const partesFecha = fechaTexto.split("-");
       let year, month, day;
 
@@ -124,69 +126,38 @@ export async function POST(request: Request) {
       const paddedDay = String(day).padStart(2, "0");
       const dateStr = `${year}-${paddedMonth}-${paddedDay}T00:00:00.000Z`;
 
-      if (!reportesAgrupados[dateStr]) {
-        reportesAgrupados[dateStr] = [];
-      }
+      if (!reportesAgrupados[dateStr]) reportesAgrupados[dateStr] = [];
       reportesAgrupados[dateStr].push(fila);
     }
 
-    const fechasProcesadas: string[] = [];
-    const fechasDuplicadas: string[] = [];
     const operacionesRef = collection(db, "operaciones_retiros");
-
     const todasLasOperacionesNuevas = [];
     const historialesNuevos = [];
+    const fechasProcesadas = Object.keys(reportesAgrupados);
 
-    // --- VERIFICACIÓN Y PROCESAMIENTO POR DÍA ---
+    // PREPARAMOS TODOS LOS DATOS
     for (const [dateStr, filasDeLaFecha] of Object.entries(reportesAgrupados)) {
-      // Verificamos si ESTA fecha en particular ya existe
-      const q = query(
-        operacionesRef,
-        where("Moneda", "==", currency),
-        where("Fecha del reporte", "==", dateStr),
-        limit(1),
+      // Transformamos las filas y obtenemos su ID único
+      const transformadas = filasDeLaFecha.map((fila) =>
+        transformarFila(fila, currency, dateStr),
       );
-      const duplicateCheck = await getDocs(q);
+      todasLasOperacionesNuevas.push(...transformadas);
 
-      if (!duplicateCheck.empty) {
-        fechasDuplicadas.push(dateStr.split("T")[0]); // Guardamos para avisarle al usuario
-      } else {
-        fechasProcesadas.push(dateStr.split("T")[0]);
+      // Preparamos el historial para el Gestor
+      const [year, month, day] = dateStr.split("T")[0].split("-");
+      const historialId = `${currency}_${year}-${month}-${day}`;
 
-        // Transformamos las filas
-        const transformadas = filasDeLaFecha.map((fila) =>
-          transformarFila(fila, currency, dateStr),
-        );
-        todasLasOperacionesNuevas.push(...transformadas);
-
-        // Preparamos el historial para el Gestor
-        const [year, month, day] = dateStr.split("T")[0].split("-");
-        const historialId = `${currency}_${year}-${month}-${day}`;
-
-        historialesNuevos.push({
-          id: historialId,
-          fechaReporte: dateStr,
-          moneda: currency,
-          totalRegistros: transformadas.length,
-          subidoEl: new Date().toISOString(),
-        });
-      }
+      historialesNuevos.push({
+        id: historialId,
+        fechaReporte: dateStr,
+        moneda: currency,
+        subidoEl: new Date().toISOString(),
+        subidoPor: subidoPor || 'Sistema'
+      });
     }
 
-    // Si TODAS las fechas del archivo ya existían
-    if (fechasProcesadas.length === 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          code: "DUPLICATE",
-          error: `Todos los datos de este archivo ya fueron procesados previamente en ${currency}.`,
-        },
-        { status: 400 },
-      );
-    }
-
-    // --- GUARDADO MASIVO (BATCH) ---
-    // 1. Guardar las operaciones en lotes de 500
+    // GUARDADO MASIVO (BATCH) CON MERGE (Sobrescribe si existe, crea si no existe)
+    // Procesamos en bloques de 500 porque es el límite de Firebase Batch
     const chunks = [];
     for (let i = 0; i < todasLasOperacionesNuevas.length; i += 500) {
       chunks.push(todasLasOperacionesNuevas.slice(i, i + 500));
@@ -194,32 +165,27 @@ export async function POST(request: Request) {
 
     for (const chunk of chunks) {
       const batch = writeBatch(db);
-      chunk.forEach((dato) => {
-        const nuevoDocRef = doc(operacionesRef);
-        batch.set(nuevoDocRef, dato);
+      chunk.forEach((item) => {
+        // Usamos el ID determinista específico en lugar de dejar que Firebase invente uno
+        const docRef = doc(operacionesRef, item.idUnico);
+        batch.set(docRef, item.datos, { merge: true });
       });
       await batch.commit();
     }
 
-    // 2. Guardar los historiales (Uno por cada día detectado)
+    // Guardar/Actualizar los historiales
     const batchHistorial = writeBatch(db);
     historialesNuevos.forEach((historial) => {
       const ref = doc(db, "historial_reportes", historial.id);
-      batchHistorial.set(ref, historial);
+      // Solo actualizamos la fecha de subida para no sobreescribir otros datos si ya existía
+      batchHistorial.set(ref, historial, { merge: true });
     });
     await batchHistorial.commit();
 
-    // --- RESPUESTA DINÁMICA ---
-    let mensajeFinal = `Se procesaron exitosamente datos de ${fechasProcesadas.length} días.`;
-    if (fechasDuplicadas.length > 0) {
-      mensajeFinal += ` Se omitieron ${fechasDuplicadas.length} días que ya existían en la base de datos para no duplicarlos.`;
-    }
-
     return NextResponse.json({
       success: true,
-      message: mensajeFinal,
+      message: `Archivo procesado con éxito. Se escanearon ${todasLasOperacionesNuevas.length} registros distribuidos en ${fechasProcesadas.length} días.`,
       monedaGuardada: currency,
-      totalRegistros: todasLasOperacionesNuevas.length,
     });
   } catch (error) {
     console.error("Error procesando archivo:", error);
