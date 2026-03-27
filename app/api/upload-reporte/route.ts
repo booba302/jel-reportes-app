@@ -152,7 +152,8 @@ export async function POST(request: Request) {
         fechaReporte: dateStr,
         moneda: currency,
         subidoEl: new Date().toISOString(),
-        subidoPor: subidoPor || 'Sistema'
+        subidoPor: subidoPor || 'Sistema',
+        totalRegistros: transformadas.length
       });
     }
 
