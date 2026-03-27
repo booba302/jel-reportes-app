@@ -62,11 +62,10 @@ interface OperacionRow {
 function ReporteDiarioContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { currency } = useCurrency(); // Ahora usamos la moneda del menú superior
+  const { currency } = useCurrency();
 
   const fechaParam = searchParams.get("fecha");
 
-  // Estado para la fecha: Toma la de la URL si existe, si no, usa la de hoy
   const [selectedDate, setSelectedDate] = useState<string>(
     fechaParam ? fechaParam.split("T")[0] : format(new Date(), "yyyy-MM-dd"),
   );
@@ -74,10 +73,12 @@ function ReporteDiarioContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [rawOps, setRawOps] = useState<OperacionRow[]>([]);
 
-  // Filtros y Paginación
+  // Filtros y Paginación Doble
   const [selectedOperator, setSelectedOperator] = useState<string>("Todos");
   const [operadoresList, setOperadoresList] = useState<string[]>([]);
+
   const [currentPage, setCurrentPage] = useState(1);
+  const [currentWorstPage, setCurrentWorstPage] = useState(1); // NUEVO: Paginación para Brechas Críticas
   const itemsPerPage = 10;
 
   useEffect(() => {
@@ -86,7 +87,6 @@ function ReporteDiarioContent() {
       setIsLoading(true);
 
       try {
-        // Reconstruimos la fecha al formato que guarda Firebase (YYYY-MM-DDT00:00:00.000Z)
         const fechaDB = `${selectedDate}T00:00:00.000Z`;
 
         const q = query(
@@ -107,10 +107,7 @@ function ReporteDiarioContent() {
             : "00:00:00";
           const operador = data.Operador || "Desconocido";
 
-          // NUEVO: Solo agregamos a la lista de filtros a los humanos
-          if (operador !== "Autopago") {
-            opsSet.add(operador);
-          }
+          opsSet.add(operador);
 
           ops.push({
             id: doc.id,
@@ -128,8 +125,11 @@ function ReporteDiarioContent() {
 
         setRawOps(ops);
         setOperadoresList(Array.from(opsSet).sort());
-        setSelectedOperator("Todos"); // Resetea el filtro al cambiar de fecha
+
+        // Reseteo de estados al cambiar de día
+        setSelectedOperator("Todos");
         setCurrentPage(1);
+        setCurrentWorstPage(1);
       } catch (error) {
         console.error("Error cargando reporte diario:", error);
       } finally {
@@ -138,27 +138,43 @@ function ReporteDiarioContent() {
     };
 
     fetchDailyData();
-  }, [selectedDate, currency]); // Se recalcula si cambias la fecha o la moneda superior
+  }, [selectedDate, currency]);
 
   const processedData = useMemo(() => {
-    // 1. Calculamos el % Global de Autopago ANTES de filtrar
+    const filteredOps =
+      selectedOperator === "Todos"
+        ? rawOps
+        : rawOps.filter((op) => op.operador === selectedOperator);
+
+    // 1. Cálculos de Automatización (Global)
     const totalGlobal = rawOps.length;
     const autoCount = rawOps.filter((op) => op.operador === "Autopago").length;
     const autoPct =
       totalGlobal > 0 ? ((autoCount / totalGlobal) * 100).toFixed(1) : "0.0";
 
-    // 2. Aislamos estrictamente las operaciones manuales para auditar al equipo
-    const baseOps = rawOps.filter((op) => op.operador !== "Autopago");
+    // 2. Cálculos Manuales (SLA y Tiempo)
+    const manualOps = filteredOps.filter((op) => op.operador !== "Autopago");
+    const totalManual = manualOps.length;
+    let manualSlaCount = 0;
+    let manualTotalTime = 0;
 
-    // 3. Aplicamos el filtro del selector (Todos o un agente específico)
-    const filteredOps =
-      selectedOperator === "Todos"
-        ? baseOps
-        : baseOps.filter((op) => op.operador === selectedOperator);
+    manualOps.forEach((op) => {
+      manualTotalTime += op.tiempo;
+      if (op.cumple) manualSlaCount++;
+    });
 
-    let totalTx = 0,
-      slaCount = 0,
-      totalTime = 0;
+    const metrics = {
+      totalTx: filteredOps.length,
+      slaPct:
+        totalManual > 0
+          ? ((manualSlaCount / totalManual) * 100).toFixed(1)
+          : "0.0",
+      avgTime:
+        totalManual > 0 ? (manualTotalTime / totalManual).toFixed(1) : "0.0",
+      autoPct,
+    };
+
+    // 3. Cálculos Visuales
     const hourMap: Record<string, number> = {};
     const agtPerfMap: Record<string, { cumple: number; noCumple: number }> = {};
 
@@ -167,27 +183,14 @@ function ReporteDiarioContent() {
     }
 
     filteredOps.forEach((op) => {
-      totalTx++;
-      totalTime += op.tiempo;
-      if (op.cumple) slaCount++;
-
       const hour = op.hora.split(":")[0] + ":00";
-      if (hourMap[hour] !== undefined) {
-        hourMap[hour]++;
-      }
+      if (hourMap[hour] !== undefined) hourMap[hour]++;
 
       if (!agtPerfMap[op.operador])
         agtPerfMap[op.operador] = { cumple: 0, noCumple: 0 };
       if (op.cumple) agtPerfMap[op.operador].cumple++;
       else agtPerfMap[op.operador].noCumple++;
     });
-
-    const metrics = {
-      totalTx, // Ahora esto es puramente el volumen manual
-      slaPct: totalTx > 0 ? ((slaCount / totalTx) * 100).toFixed(1) : "0.0",
-      avgTime: totalTx > 0 ? (totalTime / totalTx).toFixed(2) : "0.0",
-      autoPct, // El % que calculamos al principio
-    };
 
     const hourlyData = Object.keys(hourMap)
       .sort()
@@ -202,27 +205,36 @@ function ReporteDiarioContent() {
       Incumplen: agtPerfMap[agt].noCumple,
     }));
 
-    const worstOps = filteredOps
-      .filter((op) => !op.cumple)
-      .sort((a, b) => b.tiempo - a.tiempo)
-      .slice(0, 20);
-
+    // 4. Paginación Tabla Principal
     const totalPages = Math.ceil(filteredOps.length / itemsPerPage);
     const paginatedOps = filteredOps.slice(
       (currentPage - 1) * itemsPerPage,
       currentPage * itemsPerPage,
     );
 
+    // 5. NUEVO: Paginación Tabla Brechas Críticas
+    const allWorstOps = filteredOps
+      .filter((op) => !op.cumple)
+      .sort((a, b) => b.tiempo - a.tiempo); // Traemos TODAS las que rompieron SLA
+
+    const totalWorstPages = Math.ceil(allWorstOps.length / itemsPerPage);
+    const paginatedWorstOps = allWorstOps.slice(
+      (currentWorstPage - 1) * itemsPerPage,
+      currentWorstPage * itemsPerPage,
+    );
+
     return {
-      filteredOps, // La tabla y el Excel ahora solo exportarán los retiros manuales
+      filteredOps,
       metrics,
       hourlyData,
       agentChartData,
-      worstOps,
       totalPages,
       paginatedOps,
+      totalWorstPages,
+      paginatedWorstOps,
+      allWorstOpsLength: allWorstOps.length,
     };
-  }, [rawOps, selectedOperator, currentPage]);
+  }, [rawOps, selectedOperator, currentPage, currentWorstPage]);
 
   const handleExportExcel = () => {
     const dataToExport = processedData.filteredOps.map((op) => ({
@@ -277,7 +289,6 @@ function ReporteDiarioContent() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3 print:hidden">
-          {/* NUEVO: Selector de Fecha Integrado */}
           <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
             <CalendarDays className="w-4 h-4 text-slate-500" />
             <input
@@ -290,11 +301,13 @@ function ReporteDiarioContent() {
 
           <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
             <Filter className="w-4 h-4 text-slate-500" />
+            {/* Al cambiar filtro de agente, reseteamos ambas paginaciones a la hoja 1 */}
             <Select
               value={selectedOperator}
               onValueChange={(val) => {
                 setSelectedOperator(val);
                 setCurrentPage(1);
+                setCurrentWorstPage(1);
               }}
               disabled={rawOps.length === 0}
             >
@@ -509,17 +522,19 @@ function ReporteDiarioContent() {
             </Card>
           </div>
 
+          {/* Tablas Paginadas */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 print:block print:space-y-6">
-            <Card className="lg:col-span-2 shadow-sm border-slate-200 print:break-inside-avoid print:mt-6">
+            {/* Tabla General */}
+            <Card className="lg:col-span-2 shadow-sm border-slate-200 print:break-inside-avoid print:mt-6 flex flex-col h-full">
               <CardHeader className="bg-slate-50/50 border-b pb-4 flex flex-row items-center justify-between">
                 <CardTitle className="text-base font-semibold text-slate-700">
                   Detalle de Operaciones
                 </CardTitle>
                 <span className="text-sm text-slate-500 font-normal">
-                  Mostrando {processedData.filteredOps.length} registros
+                  Total: {processedData.filteredOps.length}
                 </span>
               </CardHeader>
-              <CardContent className="p-0">
+              <CardContent className="p-0 flex-1 flex flex-col justify-between">
                 <div className="overflow-x-auto print:overflow-visible">
                   <table className="w-full text-sm text-left">
                     <thead className="text-xs text-slate-500 uppercase bg-white border-b">
@@ -563,8 +578,9 @@ function ReporteDiarioContent() {
                   </table>
                 </div>
 
+                {/* Footer Paginación General */}
                 {processedData.totalPages > 1 && (
-                  <div className="flex items-center justify-between px-4 py-3 border-t bg-slate-50 print:hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-t bg-slate-50 print:hidden mt-auto">
                     <span className="text-sm text-slate-500">
                       Página {currentPage} de {processedData.totalPages}
                     </span>
@@ -597,17 +613,24 @@ function ReporteDiarioContent() {
               </CardContent>
             </Card>
 
-            <Card className="shadow-sm border-rose-200 print:break-inside-avoid print:mt-6">
-              <CardHeader className="bg-rose-50/50 border-b border-rose-100 pb-4">
+            {/* Tabla Brechas Críticas (Ahora Paginada) */}
+            <Card className="shadow-sm border-rose-200 print:break-inside-avoid print:mt-6 flex flex-col h-full">
+              <CardHeader className="bg-rose-50/50 border-b border-rose-100 pb-4 flex flex-row items-center justify-between">
                 <CardTitle className="text-base font-semibold text-rose-800 flex items-center">
                   <AlertTriangle className="w-5 h-5 mr-2 text-rose-600" />{" "}
                   Brechas Críticas
                 </CardTitle>
+                {/* Mostramos el total de incumplimientos */}
+                {processedData.allWorstOpsLength > 0 && (
+                  <span className="text-sm font-bold text-rose-600 bg-white px-2 py-0.5 rounded-full border border-rose-200">
+                    {processedData.allWorstOpsLength} fallos
+                  </span>
+                )}
               </CardHeader>
-              <CardContent className="p-0">
-                <div className="overflow-y-auto max-h-[480px] print:max-h-none print:overflow-visible">
+              <CardContent className="p-0 flex-1 flex flex-col justify-between">
+                <div className="overflow-x-auto print:overflow-visible">
                   <table className="w-full text-sm text-left">
-                    <thead className="text-xs text-slate-500 uppercase bg-white sticky top-0 border-b">
+                    <thead className="text-xs text-slate-500 uppercase bg-white border-b">
                       <tr>
                         <th className="px-4 py-3 font-semibold">Hora</th>
                         <th className="px-4 py-3 font-semibold">Operador</th>
@@ -617,8 +640,8 @@ function ReporteDiarioContent() {
                       </tr>
                     </thead>
                     <tbody>
-                      {processedData.worstOps.length > 0 ? (
-                        processedData.worstOps.map((op, i) => (
+                      {processedData.paginatedWorstOps.length > 0 ? (
+                        processedData.paginatedWorstOps.map((op, i) => (
                           <tr key={i} className="border-b hover:bg-rose-50/50">
                             <td className="px-4 py-2 text-slate-600">
                               {op.hora}
@@ -640,13 +663,50 @@ function ReporteDiarioContent() {
                             colSpan={3}
                             className="px-4 py-8 text-center text-emerald-600 font-medium"
                           >
-                            ¡Sin incumplimientos!
+                            ¡Día perfecto! Sin incumplimientos.
                           </td>
                         </tr>
                       )}
                     </tbody>
                   </table>
                 </div>
+
+                {/* Footer Paginación Brechas Críticas */}
+                {processedData.totalWorstPages > 1 && (
+                  <div className="flex items-center justify-between px-4 py-3 border-t bg-rose-50 print:hidden mt-auto">
+                    <span className="text-sm text-rose-600/70 font-medium">
+                      Pág {currentWorstPage} de {processedData.totalWorstPages}
+                    </span>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-rose-200 text-rose-600 hover:bg-rose-100"
+                        onClick={() =>
+                          setCurrentWorstPage((p) => Math.max(1, p - 1))
+                        }
+                        disabled={currentWorstPage === 1}
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-rose-200 text-rose-600 hover:bg-rose-100"
+                        onClick={() =>
+                          setCurrentWorstPage((p) =>
+                            Math.min(processedData.totalWorstPages, p + 1),
+                          )
+                        }
+                        disabled={
+                          currentWorstPage === processedData.totalWorstPages
+                        }
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
