@@ -508,7 +508,7 @@ export default function DashboardPage() {
                           border: "none",
                           boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
                         }}
-                        formatter={(value: number) => [
+                        formatter={(value: any) => [
                           `${value} retiros`,
                           "Volumen",
                         ]}
@@ -555,7 +555,7 @@ export default function DashboardPage() {
                         ))}
                       </Pie>
                       <Tooltip
-                        formatter={(value: number) => [
+                        formatter={(value: any) => [
                           `${value} retiros`,
                           "Cantidad",
                         ]}
