@@ -107,7 +107,10 @@ function ReporteDiarioContent() {
             : "00:00:00";
           const operador = data.Operador || "Desconocido";
 
-          opsSet.add(operador);
+          // NUEVO: Solo agregamos a la lista de filtros a los humanos
+          if (operador !== "Autopago") {
+            opsSet.add(operador);
+          }
 
           ops.push({
             id: doc.id,
@@ -138,15 +141,24 @@ function ReporteDiarioContent() {
   }, [selectedDate, currency]); // Se recalcula si cambias la fecha o la moneda superior
 
   const processedData = useMemo(() => {
+    // 1. Calculamos el % Global de Autopago ANTES de filtrar
+    const totalGlobal = rawOps.length;
+    const autoCount = rawOps.filter((op) => op.operador === "Autopago").length;
+    const autoPct =
+      totalGlobal > 0 ? ((autoCount / totalGlobal) * 100).toFixed(1) : "0.0";
+
+    // 2. Aislamos estrictamente las operaciones manuales para auditar al equipo
+    const baseOps = rawOps.filter((op) => op.operador !== "Autopago");
+
+    // 3. Aplicamos el filtro del selector (Todos o un agente específico)
     const filteredOps =
       selectedOperator === "Todos"
-        ? rawOps
-        : rawOps.filter((op) => op.operador === selectedOperator);
+        ? baseOps
+        : baseOps.filter((op) => op.operador === selectedOperator);
 
     let totalTx = 0,
       slaCount = 0,
-      totalTime = 0,
-      autoCount = 0;
+      totalTime = 0;
     const hourMap: Record<string, number> = {};
     const agtPerfMap: Record<string, { cumple: number; noCumple: number }> = {};
 
@@ -158,26 +170,23 @@ function ReporteDiarioContent() {
       totalTx++;
       totalTime += op.tiempo;
       if (op.cumple) slaCount++;
-      if (op.operador === "Autopago") autoCount++;
 
       const hour = op.hora.split(":")[0] + ":00";
       if (hourMap[hour] !== undefined) {
         hourMap[hour]++;
       }
 
-      if (op.operador !== "Autopago") {
-        if (!agtPerfMap[op.operador])
-          agtPerfMap[op.operador] = { cumple: 0, noCumple: 0 };
-        if (op.cumple) agtPerfMap[op.operador].cumple++;
-        else agtPerfMap[op.operador].noCumple++;
-      }
+      if (!agtPerfMap[op.operador])
+        agtPerfMap[op.operador] = { cumple: 0, noCumple: 0 };
+      if (op.cumple) agtPerfMap[op.operador].cumple++;
+      else agtPerfMap[op.operador].noCumple++;
     });
 
     const metrics = {
-      totalTx,
+      totalTx, // Ahora esto es puramente el volumen manual
       slaPct: totalTx > 0 ? ((slaCount / totalTx) * 100).toFixed(1) : "0.0",
-      avgTime: totalTx > 0 ? (totalTime / totalTx).toFixed(1) : "0.0",
-      autoPct: totalTx > 0 ? ((autoCount / totalTx) * 100).toFixed(1) : "0.0",
+      avgTime: totalTx > 0 ? (totalTime / totalTx).toFixed(2) : "0.0",
+      autoPct, // El % que calculamos al principio
     };
 
     const hourlyData = Object.keys(hourMap)
@@ -205,7 +214,7 @@ function ReporteDiarioContent() {
     );
 
     return {
-      filteredOps,
+      filteredOps, // La tabla y el Excel ahora solo exportarán los retiros manuales
       metrics,
       hourlyData,
       agentChartData,
