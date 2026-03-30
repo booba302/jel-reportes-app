@@ -494,9 +494,9 @@ export default function CierreMensualPage() {
                         />
                         <RechartsTooltip
                           cursor={{ fill: "#f1f5f9" }}
-                          formatter={(value: number) => [
-                            `${value}%`,
-                            "SLA Cumplido",
+                          formatter={(value: any) => [
+                            Number(value).toFixed(1),
+                            "Nota Promedio",
                           ]}
                         />
                         <Bar dataKey="sla" radius={[4, 4, 0, 0]}>
