@@ -17,6 +17,19 @@ import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 
+// Importamos el AlertDialog de Shadcn
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+
 import {
   Card,
   CardContent,
@@ -84,14 +97,8 @@ export default function GestorReportesPage() {
     fetchHistorial();
   }, [currency]);
 
+  // Función limpia: Ya no usa window.confirm, se ejecuta directamente desde la alerta visual
   const handleEliminar = async (reporte: HistorialReporte) => {
-    const fechaLegible = format(new Date(reporte.fechaReporte), "dd/MM/yyyy");
-    const confirmacion = window.confirm(
-      `¿Estás absolutamente seguro de eliminar el reporte del ${fechaLegible} en ${reporte.moneda}?\n\nEsta acción borrará irreversiblemente sus retiros de la base de datos.`,
-    );
-
-    if (!confirmacion) return;
-
     setIsDeleting(reporte.id);
     try {
       const url = `/api/delete-reporte?fecha=${reporte.fechaReporte}&moneda=${reporte.moneda}&id=${reporte.id}`;
@@ -143,6 +150,7 @@ export default function GestorReportesPage() {
           </p>
         </div>
 
+        {/* NOTA: Aquí también tienes un input type="month". Si quieres luego lo cambiamos por el popover de Shadcn que hicimos antes */}
         <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
           <label className="text-sm font-medium text-slate-600">Mes:</label>
           <input
@@ -174,7 +182,9 @@ export default function GestorReportesPage() {
                 <TableHead className="text-center font-semibold">
                   Total Retiros
                 </TableHead>
-                <TableHead className="font-semibold text-center">Subido Por</TableHead>
+                <TableHead className="font-semibold text-center">
+                  Subido Por
+                </TableHead>
                 <TableHead className="font-semibold">Fecha de Subida</TableHead>
                 <TableHead className="text-right pr-6 font-semibold">
                   Acciones
@@ -228,21 +238,60 @@ export default function GestorReportesPage() {
                       >
                         <Eye className="w-4 h-4 mr-1" /> Ver
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleEliminar(rep)}
-                        disabled={isDeleting === rep.id}
-                        className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 border-rose-200"
-                      >
-                        {isDeleting === rep.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <>
-                            <Trash2 className="w-4 h-4 mr-1" /> Borrar
-                          </>
-                        )}
-                      </Button>
+
+                      {/* NUEVO BOTÓN CON ALERT DIALOG */}
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={isDeleting === rep.id}
+                            className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 border-rose-200"
+                          >
+                            {isDeleting === rep.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <>
+                                <Trash2 className="w-4 h-4 mr-1" /> Borrar
+                              </>
+                            )}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              ¿Eliminar el reporte permanentemente?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription className="text-base text-slate-600">
+                              Estás a punto de borrar el reporte del{" "}
+                              <strong className="text-slate-800">
+                                {formatearFechaLocal(rep.fechaReporte)}
+                              </strong>{" "}
+                              en{" "}
+                              <strong className="text-slate-800">
+                                {rep.moneda}
+                              </strong>
+                              .
+                              <br />
+                              <br />
+                              Si lo eliminas, los retiros de este día ya no
+                              aparecerán en la auditoría diaria.{" "}
+                              <strong className="text-rose-600">
+                                Esta acción no se puede deshacer.
+                              </strong>
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleEliminar(rep)}
+                              className="bg-rose-600 hover:bg-rose-700 text-white"
+                            >
+                              Sí, eliminar reporte
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </TableCell>
                   </TableRow>
                 ))

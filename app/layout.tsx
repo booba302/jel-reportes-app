@@ -2,7 +2,8 @@
 import "./globals.css";
 import { Inter } from "next/font/google";
 import { AuthProvider } from "./context/AuthContext";
-import { CurrencyProvider } from "./context/CurrencyContext"; 
+import { CurrencyProvider } from "./context/CurrencyContext";
+import { AutoLogoutGuard } from "@/components/AutoLogoutGuard";
 import MainLayout from "@/components/MainLayout";
 import { Toaster } from "sonner";
 
@@ -27,7 +28,11 @@ export default function RootLayout({
             <MainLayout>{children}</MainLayout>
           </CurrencyProvider>
         </AuthProvider>
+
         <Toaster position="bottom-right" richColors />
+
+        {/* El vigilante invisible que protege toda la app por inactividad */}
+        <AutoLogoutGuard />
       </body>
     </html>
   );

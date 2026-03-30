@@ -17,8 +17,19 @@ import {
   Trophy,
   LogOut,
   User as UserIcon,
-  ShieldCheck
+  ShieldCheck,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/app/context/AuthContext";
 
@@ -76,7 +87,7 @@ const adminGroup = {
   items: [
     {
       label: "Gestor de Usuarios",
-      icon: UserIcon, // Asegúrate de importar Users de lucide-react arriba
+      icon: UserIcon,
       href: "/gestor-usuarios",
       color: "text-rose-400",
     },
@@ -90,25 +101,26 @@ interface SidebarProps {
 export function Sidebar({ onMobileClose }: SidebarProps) {
   const pathname = usePathname();
   const { logout, userData } = useAuth();
-  
+
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
     diarios: false,
     evaluaciones: false,
-    administracion: false // Agregamos este al estado inicial
+    administracion: false,
   });
 
-  // Renderizado dinámico del menú: Añadimos el de admin solo si es admin
-  const visibleMenuGroups = userData?.rol === 'admin' 
-    ? [...menuGroups, adminGroup] 
-    : menuGroups;
+  const visibleMenuGroups =
+    userData?.rol === "admin" ? [...menuGroups, adminGroup] : menuGroups;
 
   useEffect(() => {
-    const activeGroup = visibleMenuGroups.find(group => 
-      group.items.some(item => pathname === item.href || pathname.startsWith(`${item.href}/`))
+    const activeGroup = visibleMenuGroups.find((group) =>
+      group.items.some(
+        (item) =>
+          pathname === item.href || pathname.startsWith(`${item.href}/`),
+      ),
     );
-    
+
     if (activeGroup) {
-      setOpenGroups(prev => ({ ...prev, [activeGroup.id]: true }));
+      setOpenGroups((prev) => ({ ...prev, [activeGroup.id]: true }));
     }
   }, [pathname, userData]);
 
@@ -118,7 +130,6 @@ export function Sidebar({ onMobileClose }: SidebarProps) {
 
   return (
     <div className="flex flex-col h-full bg-slate-900 text-white shadow-xl">
-      {/* Zona scrolleable del menú */}
       <div className="px-3 py-6 flex-1 overflow-y-auto">
         <div className="flex items-center justify-between pl-3 mb-8">
           <Link
@@ -201,7 +212,6 @@ export function Sidebar({ onMobileClose }: SidebarProps) {
         </div>
       </div>
 
-      {/* NUEVO PIE DE PÁGINA: Perfil de usuario y Logout */}
       <div className="p-4 border-t border-slate-800 bg-slate-950/50 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3 overflow-hidden">
@@ -209,7 +219,6 @@ export function Sidebar({ onMobileClose }: SidebarProps) {
               <UserIcon className="w-4 h-4 text-slate-400" />
             </div>
             <div className="flex flex-col flex-1 min-w-0">
-              {/* Leemos el nombre y rol directamente de Firebase */}
               <span className="text-sm font-medium text-white truncate">
                 {userData?.nombre || "Cargando..."}
               </span>
@@ -219,13 +228,35 @@ export function Sidebar({ onMobileClose }: SidebarProps) {
             </div>
           </div>
 
-          <button
-            onClick={logout}
-            className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-400/10 rounded-lg transition-colors ml-2"
-            title="Cerrar sesión"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
+          {/* NUEVO: Envolvemos el botón de cerrar sesión en el AlertDialog */}
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <button
+                className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-400/10 rounded-lg transition-colors ml-2"
+                title="Cerrar sesión"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>¿Deseas cerrar tu sesión?</AlertDialogTitle>
+                <AlertDialogDescription className="text-base text-slate-600">
+                  Tendrás que volver a ingresar tu correo y contraseña la
+                  próxima vez que quieras acceder al sistema.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={logout}
+                  className="bg-rose-600 hover:bg-rose-700 text-white"
+                >
+                  Sí, salir ahora
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </div>
     </div>

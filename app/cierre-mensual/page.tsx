@@ -24,9 +24,7 @@ import {
   Loader2,
   CalendarDays,
   TrendingUp,
-  Clock,
   Target,
-  CalendarOff,
   Download,
   Printer,
   Award,
@@ -34,6 +32,17 @@ import {
   User,
   Activity,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -244,7 +253,6 @@ export default function CierreMensualPage() {
   }, [mesActual]);
 
   const handleCerrarMes = async () => {
-    if (!confirm(`¿Estás seguro de cerrar el mes ${mesActual}?`)) return;
     setIsClosing(true);
     try {
       await setDoc(doc(db, "evaluaciones_mensuales", mesActual), {
@@ -850,25 +858,67 @@ export default function CierreMensualPage() {
                     </div>
                   </div>
                 </div>
-                <Button
-                  onClick={handleCerrarMes}
-                  disabled={
-                    estadoAuditoria.pendientes > 0 || !mesYaTermino || isClosing
-                  }
-                  className={cn(
-                    "w-full h-12 text-lg transition-all",
-                    estadoAuditoria.pendientes === 0 && mesYaTermino
-                      ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-md"
-                      : "bg-slate-100 text-slate-400 border border-slate-200",
-                  )}
-                >
-                  {isClosing ? (
-                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  ) : (
-                    <Lock className="w-5 h-5 mr-2" />
-                  )}
-                  Generar Promedios Definitivos y Cerrar Mes
-                </Button>
+                {/* NUEVO BOTÓN CON ALERT DIALOG DE SHADCN */}
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      disabled={
+                        estadoAuditoria.pendientes > 0 ||
+                        !mesYaTermino ||
+                        isClosing
+                      }
+                      className={cn(
+                        "w-full h-12 text-lg transition-all",
+                        estadoAuditoria.pendientes === 0 && mesYaTermino
+                          ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-md"
+                          : "bg-slate-100 text-slate-400 border border-slate-200",
+                      )}
+                    >
+                      {isClosing ? (
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      ) : (
+                        <Lock className="w-5 h-5 mr-2" />
+                      )}
+                      Generar Promedios Definitivos y Cerrar Mes
+                    </Button>
+                  </AlertDialogTrigger>
+
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle className="text-xl">
+                        ¿Cerrar el mes de{" "}
+                        {format(
+                          new Date(
+                            parseInt(mesActual.split("-")[0]),
+                            parseInt(mesActual.split("-")[1]) - 1,
+                            1,
+                          ),
+                          "MMMM",
+                          { locale: es },
+                        ).replace(/^\w/, (c) => c.toUpperCase())}
+                        ?
+                      </AlertDialogTitle>
+                      <AlertDialogDescription className="text-base text-slate-600">
+                        Esta acción consolidará los promedios definitivos de
+                        todos los operadores en la base de datos. <br />
+                        <br />
+                        <strong className="text-rose-600">
+                          ⚠️ Esta acción no se puede deshacer.
+                        </strong>{" "}
+                        ¿Estás absolutamente seguro de continuar?
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handleCerrarMes}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                      >
+                        Sí, cerrar mes
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </CardContent>
             </Card>
           )}
