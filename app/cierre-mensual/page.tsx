@@ -1,7 +1,7 @@
 // src/app/cierre-mensual/page.tsx
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect } from "react";
 import {
   collection,
   query,
@@ -32,7 +32,6 @@ import {
   Award,
   ArrowLeft,
   User,
-  BarChart2,
   Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -44,14 +43,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   BarChart,
   Bar,
@@ -77,7 +68,7 @@ export default function CierreMensualPage() {
   const [mesYaTermino, setMesYaTermino] = useState(false);
 
   // Datos procesados Globales
-  const [rawEvalsGuardados, setRawEvalsGuardados] = useState<any[]>([]); // Guardamos las diarias para el detalle
+  const [rawEvalsGuardados, setRawEvalsGuardados] = useState<any[]>([]);
   const [reportesMensuales, setReportesMensuales] = useState<any[]>([]);
   const [metricasGlobales, setMetricasGlobales] = useState<any>(null);
   const [estadoAuditoria, setEstadoAuditoria] = useState<any>(null);
@@ -224,7 +215,7 @@ export default function CierreMensualPage() {
 
   useEffect(() => {
     fetchData();
-    setSelectedOperador(null); // Resetea el detalle si cambia el mes
+    setSelectedOperador(null);
   }, [mesActual]);
 
   const handleCerrarMes = async () => {
@@ -248,19 +239,14 @@ export default function CierreMensualPage() {
     }
   };
 
-  // ------------------------------------------------------------------
-  // MAGIA NUEVA: CARGAR DETALLE DEL OPERADOR (Desglose por Día y Moneda)
-  // ------------------------------------------------------------------
   const handleVerDetalle = async (operador: string) => {
     setSelectedOperador(operador);
     setIsLoadingDetalle(true);
     try {
-      // 1. Filtramos los días evaluados que ya tenemos descargados
       const diasTrabajados = rawEvalsGuardados
         .filter((ev) => ev.operador === operador)
-        .sort((a, b) => a.fecha.localeCompare(b.fecha)); // Orden cronológico
+        .sort((a, b) => a.fecha.localeCompare(b.fecha));
 
-      // 2. Buscamos las operaciones del mes (Evitamos filtro combinado para no causar error en Firebase)
       const start = `${mesActual}-01T00:00:00.000Z`;
       const end = `${mesActual}-31T23:59:59.999Z`;
 
@@ -278,8 +264,6 @@ export default function CierreMensualPage() {
 
       snapOps.forEach((docItem) => {
         const data = docItem.data();
-
-        // FILTRO LOCAL: Descartamos los retiros que no son de este operador
         if (data.Operador !== operador) return;
 
         const mon = data.Moneda || "N/A";
@@ -302,16 +286,14 @@ export default function CierreMensualPage() {
             (monedaMap[m].tiempoTotal / monedaMap[m].total).toFixed(1),
           ),
         }))
-        .sort((a, b) => b.volumen - a.volumen); // Ordenado por volumen
+        .sort((a, b) => b.volumen - a.volumen);
 
-      // Formatear datos para el gráfico de líneas (Evolución diaria)
       const evolucion = diasTrabajados.map((d) => ({
-        fecha: d.fecha.split("T")[0].split("-").slice(1).reverse().join("/"), // Ej: 27/03
-        Nota: Number(d.puntajeFinal.toFixed(2)), // <-- AQUÍ AGREGAS EL .toFixed() ENVUELTO EN Number()
+        fecha: d.fecha.split("T")[0].split("-").slice(1).reverse().join("/"),
+        Nota: Number(d.puntajeFinal.toFixed(1)), // CORRECCIÓN PARA RECHARTS
         SLA: d.cumplimientoSlaPct,
       }));
 
-      // Extraer los promedios mensuales de este operador del ranking
       const promedios = reportesMensuales.find((r) => r.operador === operador);
 
       setDetalleData({
@@ -385,7 +367,6 @@ export default function CierreMensualPage() {
           </div>
         ) : (
           <div className="space-y-6 pb-12">
-            {/* Cabecera del Operador */}
             <div className="flex items-center gap-4 bg-white p-6 rounded-xl border shadow-sm print:border-none print:shadow-none print:p-0">
               <div className="bg-blue-100 p-4 rounded-full print:bg-transparent print:p-0">
                 <User className="w-10 h-10 text-blue-600" />
@@ -400,7 +381,6 @@ export default function CierreMensualPage() {
               </div>
             </div>
 
-            {/* KPIs del Operador */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <Card className="shadow-sm border-slate-200 bg-slate-50/50 print:break-inside-avoid">
                 <CardContent className="p-6">
@@ -458,9 +438,7 @@ export default function CierreMensualPage() {
               </Card>
             </div>
 
-            {/* Gráficos Detallados */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 print:block print:space-y-6">
-              {/* Gráfico 1: Desempeño por Moneda */}
               <Card className="shadow-sm border-slate-200 print:break-inside-avoid">
                 <CardHeader>
                   <CardTitle className="text-base font-semibold text-slate-700">
@@ -495,8 +473,8 @@ export default function CierreMensualPage() {
                         <RechartsTooltip
                           cursor={{ fill: "#f1f5f9" }}
                           formatter={(value: any) => [
-                            Number(value).toFixed(1),
-                            "Nota Promedio",
+                            `${value}%`,
+                            "SLA Cumplido",
                           ]}
                         />
                         <Bar dataKey="sla" radius={[4, 4, 0, 0]}>
@@ -521,7 +499,6 @@ export default function CierreMensualPage() {
                 </CardContent>
               </Card>
 
-              {/* Gráfico 2: Evolución Diaria */}
               <Card className="shadow-sm border-slate-200 print:break-inside-avoid print:mt-6">
                 <CardHeader>
                   <CardTitle className="text-base font-semibold text-slate-700">
@@ -575,7 +552,6 @@ export default function CierreMensualPage() {
               </Card>
             </div>
 
-            {/* Historial Diario de Evaluaciones */}
             <Card className="shadow-sm border-slate-200 print:break-inside-avoid print:shadow-none print:border-none print:mt-6">
               <CardHeader className="bg-slate-50/50 border-b pb-4 print:bg-transparent print:border-b-2 print:border-slate-800 print:px-0">
                 <CardTitle className="text-base font-semibold text-slate-700 print:text-black">
@@ -680,7 +656,6 @@ export default function CierreMensualPage() {
         }
       `}</style>
 
-      {/* Cabecera Principal */}
       <div className="flex flex-col md:flex-row justify-between md:items-end gap-4 bg-white p-5 rounded-lg border shadow-sm print:hidden">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
@@ -828,7 +803,6 @@ export default function CierreMensualPage() {
 
           {mesCerrado && reportesMensuales.length > 0 && metricasGlobales && (
             <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-700 pb-12">
-              {/* Tarjeta HERO del Ganador */}
               <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-xl p-8 text-white shadow-xl relative overflow-hidden print:break-inside-avoid print:shadow-none print:border-none">
                 <div className="absolute top-0 right-0 p-8 opacity-10">
                   <Trophy className="w-40 h-40" />
@@ -877,7 +851,6 @@ export default function CierreMensualPage() {
                 </div>
               </div>
 
-              {/* Tabla Maestra del Mes */}
               <Card className="shadow-lg border-slate-200 print:break-inside-avoid print:shadow-none print:border-none">
                 <CardHeader className="bg-slate-50/50 border-b pb-4 print:bg-transparent print:border-b-2 print:border-slate-800 print:px-0">
                   <CardTitle className="text-base font-semibold text-slate-700 print:text-black">
