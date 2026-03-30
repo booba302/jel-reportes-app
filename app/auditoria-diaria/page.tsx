@@ -9,6 +9,7 @@ import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import * as xlsx from "xlsx";
 import { useCurrency } from "../context/CurrencyContext";
+import { cn } from "@/lib/utils";
 
 import {
   ArrowLeft,
@@ -47,6 +48,13 @@ import {
   Legend,
 } from "recharts";
 import { Button } from "@/components/ui/button";
+import { Calendar as CalendarIcon } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 
 interface OperacionRow {
   id: string;
@@ -289,15 +297,35 @@ function ReporteDiarioContent() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3 print:hidden">
-          <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
-            <CalendarDays className="w-4 h-4 text-slate-500" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-transparent border-none focus:ring-0 text-sm font-medium text-slate-700 outline-none cursor-pointer"
-            />
-          </div>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className={cn(
+                  "w-[220px] justify-start text-left font-normal bg-white",
+                  !selectedDate && "text-muted-foreground",
+                )}
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {selectedDate ? (
+                  format(parseISO(selectedDate), "PPP", { locale: es })
+                ) : (
+                  <span>Selecciona fecha</span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <Calendar
+                mode="single"
+                selected={parseISO(selectedDate)}
+                onSelect={(date) =>
+                  date && setSelectedDate(format(date, "yyyy-MM-dd"))
+                }
+                initialFocus
+                locale={es}
+              />
+            </PopoverContent>
+          </Popover>
 
           <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
             <Filter className="w-4 h-4 text-slate-500" />

@@ -56,11 +56,36 @@ import {
   Line,
 } from "recharts";
 import { toast } from "sonner";
+// Agrégalas donde tienes tus otras importaciones de lucide-react y components/ui
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 export default function CierreMensualPage() {
   const [mesActual, setMesActual] = useState<string>(
     format(new Date(), "yyyy-MM"),
   );
+  // Para controlar el año dentro del nuevo selector de Shadcn
+  const [pickerYear, setPickerYear] = useState(
+    parseInt(format(new Date(), "yyyy")),
+  );
+  const mesesNombres = [
+    "Ene",
+    "Feb",
+    "Mar",
+    "Abr",
+    "May",
+    "Jun",
+    "Jul",
+    "Ago",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dic",
+  ];
   const [isLoading, setIsLoading] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
 
@@ -667,16 +692,63 @@ export default function CierreMensualPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-3 bg-slate-50 p-1 border rounded-lg">
-            <span className="px-3 text-sm font-medium text-slate-600">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium text-slate-600 print:hidden">
               Periodo:
             </span>
-            <input
-              type="month"
-              value={mesActual}
-              onChange={(e) => setMesActual(e.target.value)}
-              className="border-none bg-transparent py-2 pr-4 text-sm font-semibold focus:ring-0 outline-none cursor-pointer"
-            />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-[180px] justify-start text-left font-normal bg-white print:border-none print:shadow-none print:p-0 print:text-xl print:font-bold"
+                >
+                  <CalendarDays className="mr-2 h-4 w-4 print:hidden" />
+                  {format(
+                    new Date(
+                      parseInt(mesActual.split("-")[0]),
+                      parseInt(mesActual.split("-")[1]) - 1,
+                      1,
+                    ),
+                    "MMMM yyyy",
+                    { locale: es },
+                  ).replace(/^\w/, (c) => c.toUpperCase())}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64 p-3" align="start">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setPickerYear((y) => y - 1)}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <div className="font-bold text-slate-800">{pickerYear}</div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setPickerYear((y) => y + 1)}
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {mesesNombres.map((mes, idx) => {
+                    const val = `${pickerYear}-${String(idx + 1).padStart(2, "0")}`;
+                    return (
+                      <Button
+                        key={mes}
+                        variant={mesActual === val ? "default" : "ghost"}
+                        className="h-9"
+                        onClick={() => setMesActual(val)}
+                      >
+                        {mes}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
           {mesCerrado && (
             <>
