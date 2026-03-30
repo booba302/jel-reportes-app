@@ -113,106 +113,44 @@ export default function EvaluacionDesempenoPage() {
     fetchEvaluaciones();
   }, [date]);
 
-  // MOTOR DE SINCRONIZACIÓN GLOBAL (Reemplaza la API antigua)
+  // MOTOR DE SINCRONIZACIÓN GLOBAL (Ahora 100% dependiente del Backend)
   const handleSincronizar = async () => {
     if (!date) return;
     setIsSyncing(true);
 
     try {
       const dateDB = getSafeDateStr(date);
-      const [year, month, day] = dateDB.split("T")[0].split("-");
-      const dateOnly = `${year}-${month}-${day}`; // Para el ID único
 
-      // 1. Buscamos TODAS las operaciones de TODAS las monedas para ese día
-      const qOps = query(
-        collection(db, "operaciones_retiros"),
-        where("Fecha del reporte", "==", dateDB),
-      );
+      // Llamamos a nuestro nuevo Endpoint (Separación de responsabilidades)
+      const response = await fetch("/api/sincronizar-evaluaciones", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fecha: dateDB }),
+      });
 
-      const snapshotOps = await getDocs(qOps);
+      const result = await response.json();
 
-      if (snapshotOps.empty) {
-        toast.warning("Sin datos", {
-          description:
-            "No hay retiros procesados en ninguna moneda para este día.",
-        });
-        setIsSyncing(false);
-        return;
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        // Si no es JSON, leemos el texto (HTML) para ver qué error escupió Next.js
+        const textError = await response.text();
+        console.error("El servidor devolvió HTML en lugar de JSON:", textError);
+        throw new Error(
+          "El endpoint no existe o el servidor falló (revisa la consola del navegador).",
+        );
       }
 
-      // 2. Agrupamos por Operador
-      const agtMap: Record<
-        string,
-        { total: number; slaCount: number; totalTime: number }
-      > = {};
-
-      snapshotOps.forEach((doc) => {
-        const data = doc.data();
-        const op = data.Operador;
-
-        if (!op || op === "Autopago" || op === "Desconocido") return; // Excluimos bots y errores
-
-        if (!agtMap[op]) agtMap[op] = { total: 0, slaCount: 0, totalTime: 0 };
-
-        agtMap[op].total++;
-        agtMap[op].totalTime += Number(data.Tiempo) || 0;
-        if (data.Cumple === true) agtMap[op].slaCount++;
-      });
-
-      // 3. Calculamos, guardamos y actualizamos
-      const promesas = Object.keys(agtMap).map(async (op) => {
-        const metrics = agtMap[op];
-        const idUnico = `${dateOnly}_${op.replace(/\s+/g, "")}`; // Ej: 2026-03-27_AngelAleman
-
-        const slaPct = (metrics.slaCount / metrics.total) * 100;
-        const avgTime = metrics.totalTime / metrics.total;
-
-        // Fórmula de puntos (SLA: 1 punto por cada 10%, Tiempo: 10 pts si es <0, va restando si sube)
-        const pSla = Number((slaPct / 10).toFixed(1));
-        const pTiempo = Number(Math.max(0, 10 - avgTime / 3).toFixed(1)); // Penaliza tiempos altos
-
-        const docRef = doc(db, "evaluaciones_desempeno", idUnico);
-        const existingDoc = await getDoc(docRef);
-
-        if (existingDoc.exists()) {
-          // Si ya existe, SOLO actualizamos la matemática (respetando lo cualitativo que ya llenó el jefe)
-          await updateDoc(docRef, {
-            totalRetiros: metrics.total,
-            cumplimientoSlaPct: Number(slaPct.toFixed(1)),
-            tiempoPromedioMin: Number(avgTime.toFixed(1)),
-            puntajeSla: pSla,
-            puntajeTiempo: pTiempo,
-          });
-        } else {
-          // Si es nuevo, lo creamos asumiendo calificación perfecta por defecto
-          await setDoc(docRef, {
-            id: idUnico,
-            fecha: dateDB,
-            operador: op,
-            totalRetiros: metrics.total,
-            cumplimientoSlaPct: Number(slaPct.toFixed(1)),
-            tiempoPromedioMin: Number(avgTime.toFixed(1)),
-            puntajeSla: pSla,
-            puntajeTiempo: pTiempo,
-            puntualidad: 10, // <-- CAMBIADO A 10
-            proactividad: 10, // <-- CAMBIADO A 10
-            completoTurno: true,
-            tuvoInconveniente: false,
-            comentarioInconveniente: "",
-            estado: "Pendiente",
-          });
-        }
-      });
-
-      await Promise.all(promesas);
-
-      toast.success("Día Sincronizado", {
-        description: "Se unificaron los datos de todas las monedas.",
-      });
-      await fetchEvaluaciones();
+      if (result.success) {
+        toast.success("Día Sincronizado", {
+          description: "La base de datos central ha recalculado las métricas.",
+        });
+        await fetchEvaluaciones(); // Recargamos la tabla para ver los nuevos datos
+      } else {
+        toast.warning("Aviso", { description: result.error });
+      }
     } catch (error) {
       console.error(error);
-      toast.error("Error al sincronizar los datos de Firebase.");
+      toast.error("Error de red al intentar sincronizar.");
     } finally {
       setIsSyncing(false);
     }
@@ -228,22 +166,22 @@ export default function EvaluacionDesempenoPage() {
     );
   };
 
-  // NUEVA FUNCIÓN: Protege que los valores no superen el 10
   const handleActitudChange = (
     id: string,
     field: "puntualidad" | "proactividad",
     val: string,
   ) => {
     if (val === "") {
-      handleUpdateLocal(id, field, ""); // Permite borrar para escribir otro número
+      handleUpdateLocal(id, field, "");
       return;
     }
     let num = parseInt(val, 10);
-    if (num > 10) num = 10; // El escudo protector
+    if (num > 10) num = 10;
     handleUpdateLocal(id, field, num);
   };
 
   const calcularPuntajeFinal = (ev: Evaluacion) => {
+    // Aquí usamos promedios ponderados: SLA(30%), Tiempo(30%), Punt(20%), Proact(20%)
     const pSla = (ev.puntajeSla || 0) * 0.3;
     const pTiempo = (ev.puntajeTiempo || 0) * 0.3;
     const pPunt = (Number(ev.puntualidad) || 0) * 0.2;
@@ -274,7 +212,7 @@ export default function EvaluacionDesempenoPage() {
         proactividad: proac,
         completoTurno: ev.completoTurno,
         tuvoInconveniente: ev.tuvoInconveniente,
-        comentarioInconveniente: ev.comentarioInconveniente, // Ahora es 100% opcional
+        comentarioInconveniente: ev.comentarioInconveniente,
         puntajeFinal: calcularPuntajeFinal(ev),
         estado: "Confirmado",
         confirmadoEl: new Date().toISOString(),
@@ -292,7 +230,6 @@ export default function EvaluacionDesempenoPage() {
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto space-y-8 relative animate-in fade-in duration-500">
-      {/* Cabecera */}
       <div className="flex flex-col md:flex-row justify-between md:items-end gap-4 bg-white p-5 rounded-lg border shadow-sm">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center">
@@ -349,7 +286,6 @@ export default function EvaluacionDesempenoPage() {
         </div>
       </div>
 
-      {/* Tabla de Auditoría */}
       <Card className="shadow-md border-primary/10">
         <CardHeader className="bg-slate-50/50 border-b">
           <CardTitle className="text-lg flex items-center gap-2">
@@ -460,7 +396,7 @@ export default function EvaluacionDesempenoPage() {
                                   "puntualidad",
                                   e.target.value,
                                 )
-                              } // <-- ACTUALIZADO
+                              }
                               disabled={isConfirmado}
                               className="w-14 text-center border rounded py-1 text-sm disabled:bg-slate-100 disabled:text-slate-500 focus:ring-2 focus:ring-primary outline-none"
                             />
@@ -480,7 +416,7 @@ export default function EvaluacionDesempenoPage() {
                                   "proactividad",
                                   e.target.value,
                                 )
-                              } // <-- ACTUALIZADO
+                              }
                               disabled={isConfirmado}
                               className="w-14 text-center border rounded py-1 text-sm disabled:bg-slate-100 disabled:text-slate-500 focus:ring-2 focus:ring-primary outline-none"
                             />
@@ -608,7 +544,6 @@ export default function EvaluacionDesempenoPage() {
         </CardContent>
       </Card>
 
-      {/* Modal de Observaciones (Opcional) */}
       {modalOpenId && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
           <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-lg animate-in zoom-in-95 duration-200">

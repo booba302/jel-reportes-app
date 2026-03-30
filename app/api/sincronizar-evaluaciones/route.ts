@@ -1,4 +1,4 @@
-// src/app/api/sincronizar-evaluaciones/route.ts
+// src/app/api/sincronizar-global/route.ts
 import { NextResponse } from "next/server";
 import {
   collection,
@@ -10,139 +10,145 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
+// 1. Cálculo de SLA
 const calcularPuntajeSLA = (porcentaje: number) => {
-  if (porcentaje <= 100 && porcentaje > 90) return 10;
-  if (porcentaje <= 90 && porcentaje > 80) return 9;
-  if (porcentaje <= 80 && porcentaje > 70) return 8;
-  if (porcentaje <= 70 && porcentaje > 60) return 7;
-  if (porcentaje <= 60 && porcentaje > 50) return 6;
-  if (porcentaje <= 50 && porcentaje > 40) return 5;
-  if (porcentaje <= 40 && porcentaje > 30) return 4;
-  if (porcentaje <= 30 && porcentaje > 20) return 3;
-  if (porcentaje <= 20 && porcentaje > 10) return 2;
-  if (porcentaje <= 10 && porcentaje > 0) return 1;
-  return 0;
+  if (porcentaje >= 100) return 10;
+  if (porcentaje <= 0) return 0;
+  return Number((porcentaje / 10).toFixed(1));
 };
 
+// 2. Cálculo de Tiempo (Fórmula exacta del Excel original)
 const calcularPuntajeTiempo = (minutos: number) => {
-  if (minutos <= 15 && minutos > 0) return 10;
-  if (minutos > 15 && minutos <= 25) return 9;
-  if (minutos > 25 && minutos <= 30) return 8;
-  if (minutos > 30 && minutos <= 35) return 7;
-  if (minutos > 35 && minutos <= 40) return 6;
-  if (minutos > 40 && minutos <= 45) return 5;
-  if (minutos > 45 && minutos <= 50) return 4;
-  if (minutos > 50 && minutos <= 55) return 3;
-  if (minutos > 55 && minutos <= 60) return 2;
-  if (minutos > 60) return 1;
-  return 0;
+  if (minutos > 0 && minutos <= 10) return 10;
+  if (minutos > 10 && minutos <= 15) return 9;
+  if (minutos > 15 && minutos <= 20) return 8;
+  if (minutos > 20 && minutos <= 25) return 7;
+  if (minutos > 25 && minutos <= 30) return 6;
+  if (minutos > 30 && minutos <= 35) return 5;
+  if (minutos > 35 && minutos <= 40) return 4;
+  if (minutos > 40 && minutos <= 45) return 3;
+  if (minutos > 45 && minutos <= 50) return 2;
+  if (minutos > 50) return 1;
+  return 0; // En caso de que sea 0 o un valor negativo
 };
 
 export async function POST(request: Request) {
   try {
-    const { fecha, moneda } = await request.json();
+    const { fecha } = await request.json();
 
-    if (!fecha || !moneda) {
+    if (!fecha) {
       return NextResponse.json(
-        { success: false, error: "Faltan parámetros" },
+        { success: false, error: "Falta la fecha." },
         { status: 400 },
       );
     }
 
-    // 1. Buscamos todas las operaciones
-    const q = query(
+    const [year, month, day] = fecha.split("T")[0].split("-");
+    const dateOnly = `${year}-${month}-${day}`;
+
+    // 1. Buscamos todas las operaciones del día (sin importar la moneda)
+    const qOps = query(
       collection(db, "operaciones_retiros"),
       where("Fecha del reporte", "==", fecha),
-      where("Moneda", "==", moneda),
     );
-    const snapshot = await getDocs(q);
+    const snapshotOps = await getDocs(qOps);
 
-    if (snapshot.empty) {
+    if (snapshotOps.empty) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "No hay retiros cargados para esta fecha y moneda.",
-        },
+        { success: false, error: "No hay retiros para este día." },
         { status: 404 },
       );
     }
 
-    // --- NUEVO: Buscamos si ya existen evaluaciones para protegerlas ---
+    // 2. Agrupamos por Operador
+    const agtMap: Record<
+      string,
+      { total: number; slaCount: number; totalTime: number }
+    > = {};
+    snapshotOps.forEach((docSnap) => {
+      const data = docSnap.data();
+      const op = data.Operador;
+
+      if (!op || op === "Autopago" || op === "Desconocido") return;
+
+      if (!agtMap[op]) agtMap[op] = { total: 0, slaCount: 0, totalTime: 0 };
+
+      agtMap[op].total++;
+
+      const tiempoVal =
+        typeof data.Tiempo === "string"
+          ? parseFloat(data.Tiempo.replace(",", "."))
+          : Number(data.Tiempo);
+      agtMap[op].totalTime += isNaN(tiempoVal) ? 0 : tiempoVal;
+
+      const cumpleStr = String(data.Cumple).trim().toUpperCase();
+      if (
+        data.Cumple === true ||
+        cumpleStr === "SI" ||
+        cumpleStr === "SÍ" ||
+        cumpleStr === "TRUE" ||
+        cumpleStr === "1"
+      ) {
+        agtMap[op].slaCount++;
+      }
+    });
+
+    // Extraemos las evaluaciones que ya existen para no borrar las notas de actitud
     const qEval = query(
-      collection(db, "evaluaciones_diarias"),
+      collection(db, "evaluaciones_desempeno"),
       where("fecha", "==", fecha),
-      where("moneda", "==", moneda),
     );
     const evalSnap = await getDocs(qEval);
     const evaluacionesExistentes: Record<string, any> = {};
-    evalSnap.forEach((doc) => (evaluacionesExistentes[doc.id] = doc.data()));
-
-    // 2. Agrupamos por operador
-    const agrupado: Record<string, any> = {};
-    snapshot.docs.forEach((docSnap) => {
-      const data = docSnap.data();
-      const operador = data.Operador || "Autopago";
-
-      if (operador === "Autopago") return;
-
-      if (!agrupado[operador]) {
-        agrupado[operador] = {
-          total: 0,
-          cumple: 0,
-          noCumple: 0,
-          tiempoTotal: 0,
-        };
-      }
-      agrupado[operador].total += 1;
-      agrupado[operador].tiempoTotal += data.Tiempo;
-      if (data.Cumple) agrupado[operador].cumple += 1;
-      else agrupado[operador].noCumple += 1;
-    });
+    evalSnap.forEach(
+      (docSnap) => (evaluacionesExistentes[docSnap.id] = docSnap.data()),
+    );
 
     const batch = writeBatch(db);
-    const evaluacionesRef = collection(db, "evaluaciones_diarias");
     let procesados = 0;
 
-    for (const [nombre, stats] of Object.entries(agrupado)) {
-      const porcentajeSla = (stats.cumple / stats.total) * 100;
-      const promedioTiempo = stats.tiempoTotal / stats.total;
+    for (const [op, metrics] of Object.entries(agtMap)) {
+      const idUnico = `${dateOnly}_${op.replace(/\s+/g, "")}`;
+      const docRef = doc(db, "evaluaciones_desempeno", idUnico);
+      const existente = evaluacionesExistentes[idUnico];
 
-      const puntajeSla = calcularPuntajeSLA(porcentajeSla);
-      const puntajeTiempo = calcularPuntajeTiempo(promedioTiempo);
+      const slaPct = (metrics.slaCount / metrics.total) * 100;
+      const avgTime = metrics.totalTime / metrics.total;
 
-      const safeNombre = nombre.replace(/\s+/g, "_").toLowerCase();
-      const evalId = `${moneda}_${fecha.split("T")[0]}_${safeNombre}`;
-      const docRef = doc(evaluacionesRef, evalId);
+      const puntajeSla = calcularPuntajeSLA(slaPct);
+      const puntajeTiempo = calcularPuntajeTiempo(avgTime);
 
-      const existente = evaluacionesExistentes[evalId];
+      const puntualidad = existente?.puntualidad ?? 10;
+      const proactividad = existente?.proactividad ?? 10;
 
-      // Datos automáticos del sistema que siempre se actualizan
-      const datosBase = {
-        id: evalId,
-        fecha,
-        moneda,
-        operador: nombre,
-        totalRetiros: stats.total,
-        dentroSla: stats.cumple,
-        fueraSla: stats.noCumple,
-        cumplimientoSlaPct: Number(porcentajeSla.toFixed(2)),
-        tiempoPromedioMin: Number(promedioTiempo.toFixed(2)),
+      // Cálculo del puntaje final promediando los 4 pilares
+      const puntajeFinal = Number(
+        ((puntajeSla + puntajeTiempo + puntualidad + proactividad) / 4).toFixed(
+          1,
+        ),
+      );
+
+      const datosNuevos = {
+        id: idUnico,
+        fecha: fecha,
+        operador: op,
+        totalRetiros: metrics.total,
+        cumplimientoSlaPct: Number(slaPct.toFixed(1)),
+        tiempoPromedioMin: Number(avgTime.toFixed(1)),
         puntajeSla,
         puntajeTiempo,
-        ultimaActualizacion: new Date().toISOString(),
+        puntajeFinal,
+        puntualidad,
+        proactividad,
       };
 
       if (existente) {
-        // FIX: Si ya existe, actualizamos los datos matemáticos PERO NO tocamos el estado ni los campos cualitativos
-        batch.set(docRef, datosBase, { merge: true });
+        batch.set(docRef, datosNuevos, { merge: true });
       } else {
-        // FIX: Si es nuevo, le damos todo el paquete por defecto
         batch.set(
           docRef,
           {
-            ...datosBase,
-            puntualidad: 10,
-            proactividad: 10,
+            ...datosNuevos,
             completoTurno: true,
             tuvoInconveniente: false,
             comentarioInconveniente: "",
@@ -151,7 +157,6 @@ export async function POST(request: Request) {
           { merge: true },
         );
       }
-
       procesados++;
     }
 
@@ -159,10 +164,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `Sincronización segura completada para ${procesados} operadores.`,
+      message: `Evaluación global generada para ${procesados} operadores.`,
     });
   } catch (error) {
-    console.error("Error sincronizando evaluaciones:", error);
+    console.error("Error en sincronización global:", error);
     return NextResponse.json(
       { success: false, error: "Error interno del servidor." },
       { status: 500 },
