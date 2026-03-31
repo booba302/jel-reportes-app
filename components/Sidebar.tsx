@@ -19,6 +19,7 @@ import {
   Globe,
   Activity,
   Database,
+  LucideIcon, // IMPORTANTE: Importamos esto para decirle a TypeScript qué es un ícono
 } from "lucide-react";
 import {
   AlertDialog,
@@ -34,7 +35,24 @@ import {
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/app/context/AuthContext";
 
-const menuGroups = [
+// 1. DEFINIMOS LAS REGLAS DE TYPESCRIPT PARA NUESTRO MENÚ
+type MenuItem = {
+  label: string;
+  icon: LucideIcon;
+  href: string;
+  color: string;
+  requireAdmin?: boolean; // El símbolo de interrogación (?) significa que es opcional
+};
+
+type MenuGroup = {
+  id: string;
+  title: string;
+  icon: LucideIcon;
+  items: MenuItem[];
+};
+
+// 2. LE APLICAMOS LAS REGLAS AL ARREGLO ( MenuGroup[] )
+const menuGroups: MenuGroup[] = [
   {
     id: "operaciones",
     title: "Gestión Operativa",
@@ -55,7 +73,7 @@ const menuGroups = [
       {
         label: "Evaluación Diaria",
         icon: CheckSquare,
-        href: "/evaluacion-diaria",
+        href: "/evaluacion",
         color: "text-emerald-400",
       },
     ],
@@ -93,7 +111,7 @@ const menuGroups = [
       {
         label: "Gestión de Usuarios",
         icon: UserIcon,
-        href: "/gestor-usuarios",
+        href: "/gestion-usuarios",
         color: "text-rose-400",
         requireAdmin: true,
       },
@@ -115,12 +133,10 @@ export function Sidebar({
     userData?.rol?.toLowerCase().includes("admin") ||
     userData?.rol === "Administrador";
 
-  // Estado inicial: todos los grupos cerrados
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
     {},
   );
 
-  // Efecto para abrir automáticamente el grupo que contiene la vista activa
   useEffect(() => {
     const newExpandedState: Record<string, boolean> = {};
     menuGroups.forEach((group) => {
@@ -170,7 +186,6 @@ export function Sidebar({
           isOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
-        {/* LOGO AREA - Ahora es un hipervínculo al Home */}
         <Link
           href="/"
           onClick={() => window.innerWidth < 1024 && setIsOpen(false)}
@@ -195,7 +210,6 @@ export function Sidebar({
           </button>
         </Link>
 
-        {/* MENÚ SCROLLABLE */}
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-6 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
           {menuGroups.map((group) => {
             const hasVisibleItems = group.items.some(
@@ -269,7 +283,6 @@ export function Sidebar({
           })}
         </div>
 
-        {/* PERFIL Y LOGOUT */}
         <div className="p-4 border-t border-slate-800 bg-slate-900 shrink-0 flex items-center justify-between">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
