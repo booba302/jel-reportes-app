@@ -73,7 +73,7 @@ const menuGroups: MenuGroup[] = [
       {
         label: "Evaluación Diaria",
         icon: CheckSquare,
-        href: "/evaluacion",
+        href: "/evaluacion-diaria",
         color: "text-emerald-400",
       },
     ],
@@ -111,7 +111,7 @@ const menuGroups: MenuGroup[] = [
       {
         label: "Gestión de Usuarios",
         icon: UserIcon,
-        href: "/gestion-usuarios",
+        href: "/gestor-usuarios",
         color: "text-rose-400",
         requireAdmin: true,
       },

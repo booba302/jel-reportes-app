@@ -13,7 +13,7 @@ import {
   AlertCircle,
   User,
 } from "lucide-react";
-import { useCurrency } from "../context/CurrencyContext";
+import { useCurrency } from "../../context/CurrencyContext";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";

@@ -4,7 +4,6 @@ import { Inter } from "next/font/google";
 import { AuthProvider } from "./context/AuthContext";
 import { CurrencyProvider } from "./context/CurrencyContext";
 import { AutoLogoutGuard } from "@/components/AutoLogoutGuard";
-import MainLayout from "@/components/MainLayout";
 import { Toaster } from "sonner";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -24,8 +23,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <AuthProvider>
           <CurrencyProvider>
-            {" "}
-            <MainLayout>{children}</MainLayout>
+           {children}
           </CurrencyProvider>
         </AuthProvider>
 

@@ -4,7 +4,7 @@
 import * as React from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { useAuth } from "../context/AuthContext";
+import { useAuth } from "@/app/context/AuthContext";
 
 import {
   Users,

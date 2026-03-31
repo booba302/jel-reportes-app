@@ -8,7 +8,7 @@ import { db } from "@/lib/firebase";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import * as xlsx from "xlsx";
-import { useCurrency } from "../context/CurrencyContext";
+import { useCurrency } from "@/app/context/CurrencyContext";
 import { cn } from "@/lib/utils";
 
 import { toPng } from "html-to-image";

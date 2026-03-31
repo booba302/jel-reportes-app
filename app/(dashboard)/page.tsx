@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from "react";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { useCurrency } from "./context/CurrencyContext";
+import { useCurrency } from "../context/CurrencyContext";
 import {
   Activity,
   Clock,

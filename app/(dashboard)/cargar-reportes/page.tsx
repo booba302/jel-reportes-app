@@ -3,8 +3,8 @@
 
 import * as React from 'react';
 import { UploadCloud, FileSpreadsheet, Loader2, CheckCircle, AlertCircle, Trash2, Play } from 'lucide-react';
-import { useCurrency } from '../context/CurrencyContext';
-import { useAuth } from '../context/AuthContext';
+import { useCurrency } from "@/app/context/CurrencyContext";
+import { useAuth } from '@/app/context/AuthContext';
 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
