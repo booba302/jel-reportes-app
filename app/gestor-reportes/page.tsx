@@ -1,4 +1,5 @@
-// src/app/gestor/page.tsx
+// src/app/gestor-reportes
+// /page.tsx
 "use client";
 
 import * as React from "react";
