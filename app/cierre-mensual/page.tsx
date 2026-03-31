@@ -15,6 +15,8 @@ import { db } from "@/lib/firebase";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import * as xlsx from "xlsx";
+import { toPng } from "html-to-image";
+import { jsPDF } from "jspdf";
 
 import {
   Trophy,
@@ -111,6 +113,98 @@ export default function CierreMensualPage() {
   const [selectedOperador, setSelectedOperador] = useState<string | null>(null);
   const [isLoadingDetalle, setIsLoadingDetalle] = useState(false);
   const [detalleData, setDetalleData] = useState<any>(null);
+
+  // --- ESTADOS PARA PDF ---
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
+  const [exportingType, setExportingType] = useState<
+    "GLOBAL" | "DETALLE" | null
+  >(null);
+
+  // --- MOTOR DEFINITIVO ANTI-RECORTE ---
+  const handleExportPDF = (tipo: "GLOBAL" | "DETALLE") => {
+    setIsExportingPDF(true);
+    setExportingType(tipo);
+    toast.info("Ajustando dimensiones...", {
+      description: "Preparando captura de alta calidad.",
+    });
+
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+
+    const viewportMeta = document.querySelector('meta[name="viewport"]');
+    const originalViewport = viewportMeta?.getAttribute("content") || "";
+    if (viewportMeta) {
+      viewportMeta.setAttribute("content", "width=1200, initial-scale=1");
+    }
+
+    // Identificamos qué vista capturar y su nombre de archivo
+    const elementId =
+      tipo === "GLOBAL" ? "cierre-mensual-global" : "cierre-mensual-detalle";
+    const nombreArchivo =
+      tipo === "GLOBAL"
+        ? `Cierre_Mensual_${mesActual}.pdf`
+        : // Si tu variable de detalle se llama distinto (ej. detalleData), ajústala aquí
+          `Expediente_${detalleData?.operador?.replace(/\s+/g, "_") || "Operador"}_${mesActual}.pdf`;
+
+    setTimeout(async () => {
+      const element = document.getElementById(elementId);
+      if (!element) {
+        setIsExportingPDF(false);
+        setExportingType(null);
+        return;
+      }
+
+      try {
+        const dataUrl = await toPng(element, {
+          quality: 1,
+          backgroundColor: "#f8fafc",
+          pixelRatio: 2,
+          width: 1200,
+          height: element.scrollHeight,
+          style: { width: "1200px" },
+          filter: (node) => {
+            // Ignoramos todo lo que tenga esta etiqueta
+            if (
+              node instanceof HTMLElement &&
+              node.dataset.html2canvasIgnore === "true"
+            )
+              return false;
+            return true;
+          },
+        });
+
+        const pdf = new jsPDF("p", "mm", "a4");
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+
+        const imgProps = pdf.getImageProperties(dataUrl);
+        const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+        let heightLeft = imgHeight;
+        let position = 0;
+
+        pdf.addImage(dataUrl, "PNG", 0, position, pdfWidth, imgHeight);
+        heightLeft -= pageHeight;
+
+        while (heightLeft > 0) {
+          position = heightLeft - imgHeight;
+          pdf.addPage();
+          pdf.addImage(dataUrl, "PNG", 0, position, pdfWidth, imgHeight);
+          heightLeft -= pageHeight;
+        }
+
+        pdf.save(nombreArchivo);
+        toast.success("PDF exportado exitosamente");
+      } catch (error) {
+        console.error("Error generando PDF:", error);
+        toast.error("Hubo un problema al exportar el documento.");
+      } finally {
+        if (viewportMeta)
+          viewportMeta.setAttribute("content", originalViewport);
+        setIsExportingPDF(false);
+        setExportingType(null);
+      }
+    }, 800);
+  };
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -366,7 +460,15 @@ export default function CierreMensualPage() {
   // RENDER: VISTA DEL EXPEDIENTE DETALLADO (Drill-down)
   if (selectedOperador) {
     return (
-      <div className="p-6 max-w-7xl mx-auto space-y-6 animate-in slide-in-from-right-8 duration-500 print:p-0 print:max-w-full print:bg-white">
+      <div
+        id="cierre-mensual-detalle"
+        className={cn(
+          "p-6 max-w-7xl mx-auto space-y-6 min-h-screen",
+          isExportingPDF &&
+            exportingType === "DETALLE" &&
+            "absolute top-0 left-0 w-[1200px] min-w-[1200px] bg-[#f8fafc] z-[9998] shadow-none",
+        )}
+      >
         <style>{`
           @media print {
             @page { size: landscape; margin: 8mm; }
@@ -376,7 +478,10 @@ export default function CierreMensualPage() {
           }
         `}</style>
 
-        <div className="flex justify-between items-center print:hidden">
+        <div
+          className="flex justify-between items-center print:hidden"
+          data-html2canvas-ignore="true"
+        >
           <Button
             variant="ghost"
             onClick={() => setSelectedOperador(null)}
@@ -386,7 +491,7 @@ export default function CierreMensualPage() {
           </Button>
           <Button
             variant="outline"
-            onClick={handlePrintPDF}
+            onClick={() => handleExportPDF("DETALLE")}
             className="border-slate-200 text-slate-700 hover:text-blue-700 hover:bg-blue-50"
           >
             <Printer className="w-4 h-4 mr-2 text-blue-600" /> Imprimir
@@ -510,7 +615,11 @@ export default function CierreMensualPage() {
                             "SLA Cumplido",
                           ]}
                         />
-                        <Bar dataKey="sla" radius={[4, 4, 0, 0]}>
+                        <Bar
+                          dataKey="sla"
+                          radius={[4, 4, 0, 0]}
+                          isAnimationActive={!isExportingPDF}
+                        >
                           {detalleData.monedas.map(
                             (entry: any, index: number) => (
                               <Cell
@@ -577,6 +686,7 @@ export default function CierreMensualPage() {
                           strokeWidth={3}
                           dot={{ r: 4, fill: "#8b5cf6", strokeWidth: 0 }}
                           activeDot={{ r: 6 }}
+                          isAnimationActive={!isExportingPDF}
                         />
                       </LineChart>
                     </ResponsiveContainer>
@@ -679,7 +789,31 @@ export default function CierreMensualPage() {
 
   // RENDER: VISTA NORMAL (Cierre Mensual General)
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 print:p-0 print:max-w-full print:bg-white">
+    <div
+      id="cierre-mensual-global"
+      className={cn(
+        "p-6 mx-auto space-y-8 animate-in fade-in duration-500 print:p-0 print:max-w-full print:bg-white",
+        // FIX 1: Aquí es donde debe ir la magia de los 1200px, en el div principal que se fotografía
+        isExportingPDF && exportingType === "GLOBAL"
+          ? "absolute top-0 left-0 w-[1200px] min-w-[1200px] bg-[#f8fafc] z-[9998] shadow-none"
+          : "max-w-7xl",
+      )}
+    >
+      {/* FIX 2: La pantalla de carga debe ser un simple 'fixed inset-0', la tenías mezclada con los 1200px */}
+      {isExportingPDF && (
+        <div
+          data-html2canvas-ignore="true"
+          className="fixed inset-0 z-[9999] bg-slate-900/60 backdrop-blur-sm flex flex-col items-center justify-center"
+        >
+          <div className="bg-white p-8 rounded-2xl shadow-2xl flex flex-col items-center animate-in zoom-in-95">
+            <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
+            <h2 className="text-xl font-bold text-slate-800">Generando PDF</h2>
+            <p className="text-slate-500 mt-2 text-center max-w-[250px]">
+              Ajustando pantalla y tablas para evitar recortes...
+            </p>
+          </div>
+        </div>
+      )}
       <style>{`
         @media print {
           @page { size: landscape; margin: 8mm; }
@@ -699,7 +833,10 @@ export default function CierreMensualPage() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div
+          className="flex flex-wrap items-center gap-3"
+          data-html2canvas-ignore="true"
+        >
           <div className="flex items-center gap-3">
             <span className="text-sm font-medium text-slate-600 print:hidden">
               Periodo:
@@ -769,7 +906,7 @@ export default function CierreMensualPage() {
               </Button>
               <Button
                 variant="outline"
-                onClick={handlePrintPDF}
+                onClick={() => handleExportPDF("GLOBAL")}
                 className="h-10 border-slate-200 text-slate-700 hover:text-rose-700 hover:bg-rose-50"
               >
                 <Printer className="w-4 h-4 mr-2 text-rose-600" /> PDF
@@ -984,7 +1121,15 @@ export default function CierreMensualPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-0 print:pt-4">
-                  <div className="overflow-x-auto print:overflow-visible print:w-full print:max-w-full">
+                  {/* FIX 3: Quitamos el overflow-x-auto cuando exportamos a PDF para que no corte el lado derecho */}
+                  <div
+                    className={cn(
+                      "print:overflow-visible print:w-full print:max-w-full",
+                      isExportingPDF && exportingType === "GLOBAL"
+                        ? "overflow-visible w-full"
+                        : "overflow-x-auto",
+                    )}
+                  >
                     <table className="w-full text-sm text-left print:text-xs">
                       <thead className="text-xs text-slate-500 uppercase bg-white border-b print:text-black print:border-slate-400">
                         <tr>
