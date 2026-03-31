@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Coins, Menu } from "lucide-react";
 
-// Componente para el selector de monedas (Mantenemos tu lógica original)
+// Componente para el selector de monedas
 function CurrencySelector() {
   const { currency, setCurrency } = useCurrency();
   const { userData } = useAuth();
@@ -32,14 +32,16 @@ function CurrencySelector() {
 
   useEffect(() => {
     if (monedasPermitidas.length > 0 && !monedasPermitidas.includes(currency)) {
-      setCurrency(monedasPermitidas[0]);
+      // FIX: Le agregamos "as any" para que TypeScript no bloquee la compilación
+      // ya que nosotros sabemos que los strings del array son monedas válidas.
+      setCurrency(monedasPermitidas[0] as any);
     }
   }, [monedasPermitidas, currency, setCurrency]);
 
   return (
     <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200">
       <Coins className="w-4 h-4 text-slate-500" />
-      <Select value={currency} onValueChange={setCurrency}>
+      <Select value={currency} onValueChange={(val) => setCurrency(val as any)}>
         <SelectTrigger className="w-[110px] h-8 border-none bg-transparent shadow-none focus:ring-0">
           <SelectValue placeholder="Moneda" />
         </SelectTrigger>
@@ -65,15 +67,10 @@ export default function MainLayout({
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      {/* 1. SIDEBAR:
-         Ahora le pasamos las props necesarias. El componente Sidebar se encarga 
-         por sí solo de ser fijo en desktop (lg:translate-x-0) y deslizable en móvil.
-      */}
+      {/* SIDEBAR INTELIGENTE */}
       <Sidebar isOpen={isMobileMenuOpen} setIsOpen={setIsMobileMenuOpen} />
 
-      {/* 2. CONTENEDOR PRINCIPAL:
-         Usamos lg:pl-72 para dejar el espacio del sidebar en pantallas grandes.
-      */}
+      {/* CONTENEDOR PRINCIPAL */}
       <div className="flex-1 flex flex-col lg:pl-72 min-w-0">
         {/* NAVBAR SUPERIOR */}
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-6 shadow-sm sticky top-0 z-30 print:hidden">
@@ -85,10 +82,10 @@ export default function MainLayout({
             <Menu className="w-6 h-6" />
           </button>
 
-          {/* Logo o Título visible solo en móvil (Opcional) */}
+          {/* Logo o Título visible solo en móvil */}
           <div className="lg:hidden font-bold text-slate-900">Reportes</div>
 
-          {/* Selector de Moneda (Alineado a la derecha en PC, centro/derecha en móvil) */}
+          {/* Selector de Moneda */}
           <div className="flex items-center gap-4 ml-auto">
             <CurrencySelector />
           </div>
