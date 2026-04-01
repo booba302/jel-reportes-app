@@ -12,7 +12,7 @@ import { db } from "@/lib/firebase";
 
 // 🔴 LISTA DE JEFES EXCLUIDOS DE LA EVALUACIÓN
 // Agrega aquí los nombres exactamente como aparecen en los reportes
-const JEFES_EXCLUIDOS = ["Franklin Sánchez","Marvin"];
+const JEFES_EXCLUIDOS = ["Franklin Sánchez", "Marvin", "Evelyn"];
 
 // 1. Cálculo de SLA
 const calcularPuntajeSLA = (porcentaje: number) => {
