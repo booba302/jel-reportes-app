@@ -198,7 +198,7 @@ export default function CierreMensualPage() {
       const end = `${mesActual}-31T23:59:59.999Z`;
 
       // 🔴 LISTA DE EXCLUSIÓN
-      const JEFES_EXCLUIDOS = ["Franklin Sánchez", "Nombre de otro supervisor"];
+      const JEFES_EXCLUIDOS = ["Franklin Sánchez", "Marvin"];
 
       const q = query(
         collection(db, "evaluaciones_desempeno"),

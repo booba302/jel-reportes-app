@@ -41,6 +41,7 @@ type MenuItem = {
   href: string;
   color: string;
   requireAdmin?: boolean;
+  allowedRoles?: string[];
 };
 
 type MenuGroup = {
@@ -48,6 +49,7 @@ type MenuGroup = {
   title: string;
   icon: LucideIcon;
   items: MenuItem[];
+  allowedRoles?: string[];
 };
 
 const menuGroups: MenuGroup[] = [
@@ -92,6 +94,7 @@ const menuGroups: MenuGroup[] = [
         icon: Globe,
         href: "/monitor-regional",
         color: "text-indigo-400",
+        allowedRoles: ["agente_retiro_inter"], // NUEVO: Solo este rol (y el admin) podrán verlo
       },
       {
         label: "Cierre Mensual",
@@ -127,11 +130,23 @@ export function Sidebar({
   const pathname = usePathname();
   const { userData, logout } = useAuth();
 
+  const userRole = userData?.rol?.toLowerCase() || "";
   const isAdmin =
-    userData?.rol?.toLowerCase().includes("admin") ||
-    userData?.rol === "Administrador";
+    userRole.includes("admin") || userData?.rol === "Administrador";
 
-  // MODIFICACIÓN: Estado inicial con todos los grupos abiertos por defecto
+  // Función maestra para verificar permisos de cada item
+  const hasAccess = (entity: MenuItem | MenuGroup) => {
+    if (isAdmin) return true;
+    if ("requireAdmin" in entity && entity.requireAdmin && !isAdmin)
+      return false;
+
+    if (entity.allowedRoles && !entity.allowedRoles.includes(userRole)) {
+      return false;
+    }
+
+    return true;
+  };
+
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
     {
       operaciones: true,
@@ -204,10 +219,9 @@ export function Sidebar({
 
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-6 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
           {menuGroups.map((group) => {
-            const hasVisibleItems = group.items.some(
-              (item) => !item.requireAdmin || isAdmin,
-            );
-
+            if (!hasAccess(group)) return null;
+            
+            const hasVisibleItems = group.items.some((item) => hasAccess(item));
             if (!hasVisibleItems) return null;
 
             const isExpanded = expandedGroups[group.id];
@@ -238,7 +252,8 @@ export function Sidebar({
                   )}
                 >
                   {group.items.map((item) => {
-                    if (item.requireAdmin && !isAdmin) return null;
+                    // Evaluamos el acceso individual de cada item
+                    if (!hasAccess(item)) return null;
 
                     const isActive = pathname === item.href;
 
