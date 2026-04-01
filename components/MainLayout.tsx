@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/select";
 import { Coins, Menu } from "lucide-react";
 
-// Componente para el selector de monedas
 function CurrencySelector() {
   const { currency, setCurrency } = useCurrency();
   const { userData } = useAuth();
@@ -22,7 +21,6 @@ function CurrencySelector() {
   const rol = userData?.rol || "";
 
   const monedasPermitidas = useMemo(() => {
-    // Validación flexible de roles
     const normalizedRol = rol.toLowerCase();
     if (normalizedRol.includes("admin"))
       return ["GLOBAL", "PEN", "CLP", "MXN", "USD", "VES"];
@@ -32,8 +30,6 @@ function CurrencySelector() {
 
   useEffect(() => {
     if (monedasPermitidas.length > 0 && !monedasPermitidas.includes(currency)) {
-      // FIX: Le agregamos "as any" para que TypeScript no bloquee la compilación
-      // ya que nosotros sabemos que los strings del array son monedas válidas.
       setCurrency(monedasPermitidas[0] as any);
     }
   }, [monedasPermitidas, currency, setCurrency]);
@@ -62,19 +58,14 @@ export default function MainLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Estado para controlar el Sidebar en móviles
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
-      {/* SIDEBAR INTELIGENTE */}
       <Sidebar isOpen={isMobileMenuOpen} setIsOpen={setIsMobileMenuOpen} />
 
-      {/* CONTENEDOR PRINCIPAL */}
       <div className="flex-1 flex flex-col lg:pl-72 min-w-0">
-        {/* NAVBAR SUPERIOR */}
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-6 shadow-sm sticky top-0 z-30 print:hidden">
-          {/* Botón Hamburguesa para Móvil */}
           <button
             onClick={() => setIsMobileMenuOpen(true)}
             className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
@@ -82,17 +73,23 @@ export default function MainLayout({
             <Menu className="w-6 h-6" />
           </button>
 
-          {/* Logo o Título visible solo en móvil */}
           <div className="lg:hidden font-bold text-slate-900">Reportes</div>
 
-          {/* Selector de Moneda */}
           <div className="flex items-center gap-4 ml-auto">
             <CurrencySelector />
           </div>
         </header>
 
-        {/* CONTENIDO DE LA PÁGINA */}
-        <main className="flex-1 p-0 md:p-0">{children}</main>
+        {/* CONTENIDO DE LA PÁGINA (Con flex-col para empujar el footer abajo) */}
+        <main className="flex-1 flex flex-col p-0 md:p-0">
+          <div className="flex-1">{children}</div>
+
+          {/* NUEVO FOOTER */}
+          <footer className="py-4 text-center text-sm text-slate-400 border-t border-slate-200 bg-white print:hidden mt-auto">
+            Desarrollado por <strong>Franklin Sánchez</strong> para{" "}
+            <strong>JuegaEnLinea</strong> | v1.0 © 2026
+          </footer>
+        </main>
       </div>
     </div>
   );
