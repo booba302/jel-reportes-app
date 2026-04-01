@@ -196,7 +196,7 @@ export default function GestorUsuariosPage() {
     switch (rol) {
       case "admin":
         return "Administrador";
-      case "agente_retiros_internacional":
+      case "agente_retiro_inter":
         return "Agente Internacional";
       case "agente_retiros_nacional":
         return "Agente Nacional";
