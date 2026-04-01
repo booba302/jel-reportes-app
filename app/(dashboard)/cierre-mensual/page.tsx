@@ -1,4 +1,4 @@
-// src/app/cierre-mensual/page.tsx
+// src/app/(dashboard)/cierre-mensual/page.tsx
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -216,7 +216,9 @@ export default function CierreMensualPage() {
       const start = `${mesActual}-01T00:00:00.000Z`;
       const end = `${mesActual}-31T23:59:59.999Z`;
 
-      // Siempre buscamos las evaluaciones diarias para tenerlas listas para el desglose
+      // 🔴 LISTA DE EXCLUSIÓN (Mantén los nombres exactamente igual que en Firebase)
+      const JEFES_EXCLUIDOS = ["Franklin Sánchez", "Nombre de otro supervisor"];
+
       const q = query(
         collection(db, "evaluaciones_desempeno"),
         where("fecha", ">=", start),
@@ -224,7 +226,14 @@ export default function CierreMensualPage() {
       );
       const snapshot = await getDocs(q);
       const diarias: any[] = [];
-      snapshot.forEach((docSnap) => diarias.push(docSnap.data()));
+
+      // 🔴 FILTRO 1: Ocultar evaluaciones diarias de los jefes
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (!JEFES_EXCLUIDOS.includes(data.operador)) {
+          diarias.push(data);
+        }
+      });
       setRawEvalsGuardados(diarias);
 
       const docCierreRef = doc(db, "evaluaciones_mensuales", mesActual);
@@ -233,7 +242,13 @@ export default function CierreMensualPage() {
       if (docCierreSnap.exists()) {
         const data = docCierreSnap.data();
         setMesCerrado(true);
-        setReportesMensuales(data.ranking);
+
+        // 🔴 FILTRO 2: Si el mes ya estaba cerrado en el pasado, limpiamos a los jefes del ranking visual
+        const rankingLimpio = (data.ranking || []).filter(
+          (r: any) => !JEFES_EXCLUIDOS.includes(r.operador),
+        );
+
+        setReportesMensuales(rankingLimpio);
         setMetricasGlobales(data.metrics);
         setEstadoAuditoria(null);
       } else {

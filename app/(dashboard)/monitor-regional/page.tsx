@@ -252,7 +252,7 @@ export default function MonitorRegionalPage() {
             </h1>
             <p className="text-slate-500 mt-1">
               Desempeño operativo, SLA y cuellos de botella clasificados por
-              región.
+              moneda.
             </p>
           </div>
 
@@ -344,7 +344,7 @@ export default function MonitorRegionalPage() {
                   <CardContent className="p-6">
                     <div className="flex justify-between text-emerald-700 mb-2">
                       <span className="text-sm font-medium">
-                        Región Más Sana
+                        Mejor desempeño
                       </span>
                       <TrendingUp className="w-4 h-4 text-emerald-600" />
                     </div>
@@ -361,7 +361,7 @@ export default function MonitorRegionalPage() {
                   <CardContent className="p-6">
                     <div className="flex justify-between text-rose-700 mb-2">
                       <span className="text-sm font-medium">
-                        Región en Riesgo
+                        Peor desempeño
                       </span>
                       <AlertTriangle className="w-4 h-4 text-rose-600" />
                     </div>

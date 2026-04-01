@@ -19,7 +19,7 @@ import {
   Globe,
   Activity,
   Database,
-  LucideIcon, // IMPORTANTE: Importamos esto para decirle a TypeScript qué es un ícono
+  LucideIcon,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -35,13 +35,12 @@ import {
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/app/context/AuthContext";
 
-// 1. DEFINIMOS LAS REGLAS DE TYPESCRIPT PARA NUESTRO MENÚ
 type MenuItem = {
   label: string;
   icon: LucideIcon;
   href: string;
   color: string;
-  requireAdmin?: boolean; // El símbolo de interrogación (?) significa que es opcional
+  requireAdmin?: boolean;
 };
 
 type MenuGroup = {
@@ -51,7 +50,6 @@ type MenuGroup = {
   items: MenuItem[];
 };
 
-// 2. LE APLICAMOS LAS REGLAS AL ARREGLO ( MenuGroup[] )
 const menuGroups: MenuGroup[] = [
   {
     id: "operaciones",
@@ -73,7 +71,7 @@ const menuGroups: MenuGroup[] = [
       {
         label: "Evaluación Diaria",
         icon: CheckSquare,
-        href: "/evaluacion-diaria",
+        href: "/evaluacion",
         color: "text-emerald-400",
       },
     ],
@@ -111,7 +109,7 @@ const menuGroups: MenuGroup[] = [
       {
         label: "Gestión de Usuarios",
         icon: UserIcon,
-        href: "/gestor-usuarios",
+        href: "/gestion-usuarios",
         color: "text-rose-400",
         requireAdmin: true,
       },
@@ -133,20 +131,14 @@ export function Sidebar({
     userData?.rol?.toLowerCase().includes("admin") ||
     userData?.rol === "Administrador";
 
+  // MODIFICACIÓN: Estado inicial con todos los grupos abiertos por defecto
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
-    {},
+    {
+      operaciones: true,
+      analitica: true,
+      admin: true,
+    },
   );
-
-  useEffect(() => {
-    const newExpandedState: Record<string, boolean> = {};
-    menuGroups.forEach((group) => {
-      const isItemActive = group.items.some((item) => item.href === pathname);
-      if (isItemActive) {
-        newExpandedState[group.id] = true;
-      }
-    });
-    setExpandedGroups(newExpandedState);
-  }, [pathname]);
 
   const toggleGroup = (groupId: string) => {
     setExpandedGroups((prev) => ({

@@ -1,4 +1,4 @@
-// src/app/evaluacion/page.tsx
+// src/app/(dashboard)/evaluacion-diaria/page.tsx
 "use client";
 
 import * as React from "react";
