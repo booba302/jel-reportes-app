@@ -70,20 +70,21 @@ export default function ExpedienteOperadorPage() {
         const start = `${mesActual}-01T00:00:00.000Z`;
         const end = `${mesActual}-31T23:59:59.999Z`;
 
-        const q = query(
+        // 1. CONSULTA DE EVALUACIONES DIARIAS (Se mantiene igual)
+        const qEvals = query(
           collection(db, "evaluaciones_desempeno"),
           where("fecha", ">=", start),
           where("fecha", "<=", end),
         );
 
-        const snapshot = await getDocs(q);
+        const snapshotEvals = await getDocs(qEvals);
         const diarias: any[] = [];
         let totalRetiros = 0,
           retirosCumplidos = 0,
           tiempoTotalMins = 0;
         let sumNotaFinal = 0;
 
-        snapshot.forEach((docSnap) => {
+        snapshotEvals.forEach((docSnap) => {
           const data = docSnap.data();
           if (data.operador === operadorNombre) {
             diarias.push(data);
@@ -99,6 +100,45 @@ export default function ExpedienteOperadorPage() {
           }
         });
 
+        // 2. NUEVA CONSULTA: RETIROS INDIVIDUALES PARA LAS MONEDAS
+        // Asegúrate de que el nombre "operaciones_retiros" sea el correcto de tu colección
+        const qRetiros = query(
+          collection(db, "operaciones_retiros"),
+          where("Fecha del reporte", ">=", start),
+          where("Fecha del reporte", "<=", end),
+        );
+
+        const snapshotRetiros = await getDocs(qRetiros);
+        const monedasMap: Record<string, { total: number; cumple: number }> =
+          {};
+
+        snapshotRetiros.forEach((docSnap) => {
+          const data = docSnap.data();
+          // Filtramos en memoria por el operador
+          if (data.Operador === operadorNombre) {
+            const moneda = data.Moneda || "OTRA";
+            if (!monedasMap[moneda]) {
+              monedasMap[moneda] = { total: 0, cumple: 0 };
+            }
+            monedasMap[moneda].total += 1;
+            // Evaluamos si el campo Cumple es true
+            if (data.Cumple === true) {
+              monedasMap[moneda].cumple += 1;
+            }
+          }
+        });
+
+        // Convertimos el mapa a un array para el gráfico
+        const monedasDataReales = Object.keys(monedasMap)
+          .map((moneda) => {
+            const { total, cumple } = monedasMap[moneda];
+            return {
+              moneda,
+              sla: total > 0 ? Number(((cumple / total) * 100).toFixed(1)) : 0,
+            };
+          })
+          .sort((a, b) => b.sla - a.sla); // Ordenamos de mayor a menor cumplimiento
+
         if (diarias.length > 0) {
           const diasOrdenados = diarias.sort(
             (a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime(),
@@ -107,31 +147,6 @@ export default function ExpedienteOperadorPage() {
           const slaPromedio = Number(
             ((retirosCumplidos / totalRetiros) * 100).toFixed(1),
           );
-
-          const monedasData = [
-            {
-              moneda: "CLP",
-              sla:
-                slaPromedio > 2
-                  ? Number((slaPromedio - 2).toFixed(1))
-                  : slaPromedio,
-            },
-            {
-              moneda: "PEN",
-              sla:
-                slaPromedio > 5
-                  ? Number((slaPromedio - 5).toFixed(1))
-                  : slaPromedio,
-            },
-            {
-              moneda: "USD",
-              sla:
-                slaPromedio < 95
-                  ? Number((slaPromedio + 3).toFixed(1))
-                  : slaPromedio,
-            },
-            { moneda: "MXN", sla: slaPromedio },
-          ];
 
           const evolucionData = diasOrdenados.map((d) => ({
             fecha: format(parseISO(d.fecha.split("T")[0]), "dd/MM"),
@@ -147,7 +162,10 @@ export default function ExpedienteOperadorPage() {
               totalRetiros: totalRetiros,
               diasTrabajados: diasTrabajados,
             },
-            monedas: monedasData,
+            monedas:
+              monedasDataReales.length > 0
+                ? monedasDataReales
+                : [{ moneda: "Sin Datos", sla: 0 }], // Usamos los datos reales aquí
             evolucion: evolucionData,
             dias: diasOrdenados,
           });
@@ -259,7 +277,7 @@ export default function ExpedienteOperadorPage() {
       <div
         id="cierre-mensual-detalle"
         className={cn(
-          "relative p-6 max-w-7xl mx-auto space-y-6 min-h-screen", // Agregado 'relative' por si acaso
+          "relative p-6 max-w-7xl mx-auto space-y-6 min-h-screen",
           isExportingPDF &&
             exportingType === "DETALLE" &&
             "absolute top-0 left-0 w-[1200px] min-w-[1200px] bg-[#f8fafc] z-[9998] shadow-none",
@@ -580,7 +598,6 @@ export default function ExpedienteOperadorPage() {
           </div>
         )}
 
-        {/* 🔴 AQUÍ ESTÁ LA PANTALLA OSCURA (OVERLAY) AL EXPORTAR */}
         {isExportingPDF && (
           <div
             data-html2canvas-ignore="true"

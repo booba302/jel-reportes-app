@@ -62,7 +62,7 @@ import { toast } from "sonner";
 interface OperacionRow {
   id: string;
   hora: string;
-  jugador: number;
+  alias: string;
   cantidad: number;
   tiempo: number;
   cumple: boolean;
@@ -105,7 +105,6 @@ function ReporteDiarioContent() {
           where("Fecha del reporte", "==", fechaDB),
           where("Moneda", "==", currency),
         );
-
         const snapshot = await getDocs(q);
         const ops: OperacionRow[] = [];
         const opsSet = new Set<string>();
@@ -123,7 +122,7 @@ function ReporteDiarioContent() {
           ops.push({
             id: doc.id,
             hora: timePart,
-            jugador: data.Jugador,
+            alias: data.Alias,
             cantidad: Number(data.Cantidad) || 0,
             tiempo: Number(data.Tiempo) || 0,
             cumple: data.Cumple === true,
@@ -245,7 +244,7 @@ function ReporteDiarioContent() {
   const handleExportExcel = () => {
     const dataToExport = processedData.filteredOps.map((op) => ({
       Hora: op.hora,
-      "Jugador ID": op.jugador,
+      "Jugador": op.alias,
       "Nivel VIP": op.nivel,
       Monto: op.cantidad,
       "Tiempo (min)": op.tiempo,
@@ -803,7 +802,7 @@ function ReporteDiarioContent() {
                               {op.hora}
                             </td>
                             <td className="px-4 py-2 font-medium text-slate-800">
-                              {op.jugador}
+                              {op.alias}
                             </td>
                             <td className="px-4 py-2 text-center text-slate-500">
                               {op.nivel}

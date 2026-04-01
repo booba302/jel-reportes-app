@@ -73,7 +73,7 @@ const menuGroups: MenuGroup[] = [
       {
         label: "Evaluación Diaria",
         icon: CheckSquare,
-        href: "/evaluacion",
+        href: "/evaluacion-diaria",
         color: "text-emerald-400",
       },
     ],
