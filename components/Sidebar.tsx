@@ -109,7 +109,7 @@ const menuGroups: MenuGroup[] = [
       {
         label: "Gestión de Usuarios",
         icon: UserIcon,
-        href: "/gestion-usuarios",
+        href: "/gestor-usuarios",
         color: "text-rose-400",
         requireAdmin: true,
       },
