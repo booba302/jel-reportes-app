@@ -86,7 +86,7 @@ export default function MainLayout({
 
           {/* NUEVO FOOTER */}
           <footer className="py-4 text-center text-sm text-slate-400 border-t border-slate-200 bg-white print:hidden mt-auto">
-            Desarrollado por <strong>Franklin Sánchez</strong> para{" "}
+            Desarrollado para{" "}
             <strong>JuegaEnLinea</strong> | v1.0 © 2026
           </footer>
         </main>
