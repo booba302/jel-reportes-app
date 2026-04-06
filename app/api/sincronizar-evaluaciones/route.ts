@@ -44,7 +44,7 @@ export async function POST(request: Request) {
 
     // Definición de monedas por rol
     let monedasPermitidas: string[] = [];
-    if (rol === "agente_retiro_inter") {
+    if (rol === "agente_retiros_internacional") {
       monedasPermitidas = ["CLP", "PEN", "USD", "MXN"];
     } else if (rol === "agente_retiros_nacional") {
       monedasPermitidas = ["VES"];

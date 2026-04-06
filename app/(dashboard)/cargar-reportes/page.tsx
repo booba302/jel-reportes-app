@@ -74,6 +74,7 @@ export default function CargarArchivosPage() {
       formData.append('file', item.file);
       formData.append('currency', currency);
       formData.append('subidoPor', userData?.nombre || 'Usuario Desconocido');
+      formData.append('rol', userData?.rol || '');
 
       try {
         const response = await fetch('/api/upload-reporte', {

@@ -94,7 +94,7 @@ const menuGroups: MenuGroup[] = [
         icon: Globe,
         href: "/monitor-regional",
         color: "text-indigo-400",
-        allowedRoles: ["agente_retiro_inter"], // NUEVO: Solo este rol (y el admin) podrán verlo
+        allowedRoles: ["agente_retiros_internacional"], // NUEVO: Solo este rol (y el admin) podrán verlo
       },
       {
         label: "Cierre Mensual",

@@ -12,173 +12,123 @@ import { db } from "@/lib/firebase";
 
 export async function POST(request: Request) {
   try {
-    const { mes } = await request.json(); // Formato esperado: "YYYY-MM"
+    const { mes, grupo, rol } = await request.json();
 
-    if (!mes) {
+    if (!mes || !grupo) {
       return NextResponse.json(
-        { success: false, error: "Mes no proporcionado" },
+        { success: false, error: "Datos insuficientes" },
         { status: 400 },
       );
     }
 
-    // 1. RESTRICCIÓN DE TIEMPO: Un mes solo se puede cerrar si ya terminó
+    // 1. RESTRICCIÓN DE TIEMPO: El mes debe haber terminado
     const today = new Date();
     const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
-
     if (mes >= currentMonthStr) {
       return NextResponse.json(
         {
           success: false,
-          error: `Aún no puedes cerrar ${mes}. Debes esperar al mes siguiente para realizar esta acción.`,
+          error: "Solo puedes cerrar meses que ya han finalizado por completo.",
         },
         { status: 400 },
       );
     }
 
-    const fechaInicio = `${mes}-01T00:00:00.000Z`;
-    const fechaFin = `${mes}-31T23:59:59.999Z`;
+    const start = `${mes}-01T00:00:00.000Z`;
+    const end = `${mes}-31T23:59:59.999Z`;
 
-    // 2. BUSCAR DÍAS CARGADOS (Historial de archivos subidos)
-    const qHistorial = query(
-      collection(db, "historial_reportes"),
-      where("fechaReporte", ">=", fechaInicio),
-      where("fechaReporte", "<=", fechaFin),
+    // 2. CONSULTA FILTRADA POR GRUPO
+    const qEvals = query(
+      collection(db, "evaluaciones_desempeno"),
+      where("fecha", ">=", start),
+      where("fecha", "<=", end),
     );
-    const snapHistorial = await getDocs(qHistorial);
-    const diasCargadosPorMoneda: Record<string, Set<string>> = {};
 
-    snapHistorial.docs.forEach((doc) => {
-      const data = doc.data();
-      if (!diasCargadosPorMoneda[data.moneda])
-        diasCargadosPorMoneda[data.moneda] = new Set();
-      diasCargadosPorMoneda[data.moneda].add(data.fechaReporte);
-    });
+    const snapshot = await getDocs(qEvals);
+    const evalsFiltradas = snapshot.docs
+      .map((d) => d.data())
+      .filter((d) => (grupo === "global" ? true : d.grupoMoneda === grupo));
 
-    // 3. BUSCAR EVALUACIONES DIARIAS
-    const qEval = query(
-      collection(db, "evaluaciones_diarias"),
-      where("fecha", ">=", fechaInicio),
-      where("fecha", "<=", fechaFin),
-    );
-    const snapEval = await getDocs(qEval);
-
-    if (snapEval.empty) {
-      return NextResponse.json(
-        { success: false, error: "No hay evaluaciones para este mes." },
-        { status: 404 },
-      );
-    }
-
-    const evaluaciones = snapEval.docs.map((doc) => doc.data());
-
-    // 4. VALIDAR PENDIENTES E INCONSISTENCIAS
-    const pendientes = evaluaciones.filter((ev) => ev.estado !== "Confirmado");
+    // 3. VALIDACIÓN: ¿Están todos confirmados en este grupo?
+    const pendientes = evalsFiltradas.filter((e) => e.estado === "Pendiente");
     if (pendientes.length > 0) {
       return NextResponse.json(
         {
           success: false,
-          error: `Hay operadores con evaluaciones pendientes. Confírmalas todas antes de cerrar el mes.`,
+          error: `Hay ${pendientes.length} evaluaciones pendientes en tu grupo. Debes confirmarlas todas antes de cerrar el mes.`,
         },
         { status: 400 },
       );
     }
 
-    const diasEvaluadosPorMoneda: Record<string, Set<string>> = {};
-    evaluaciones.forEach((ev) => {
-      if (!diasEvaluadosPorMoneda[ev.moneda])
-        diasEvaluadosPorMoneda[ev.moneda] = new Set();
-      diasEvaluadosPorMoneda[ev.moneda].add(ev.fecha);
-    });
-
-    // CRUCE DE DATOS: Asegurarse de que coincida lo subido con lo evaluado
-    for (const moneda of Object.keys(diasCargadosPorMoneda)) {
-      const cargados = diasCargadosPorMoneda[moneda].size;
-      const evaluados = diasEvaluadosPorMoneda[moneda]?.size || 0;
-
-      if (cargados !== evaluados) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: `Inconsistencia en ${moneda}: Subiste Excels para ${cargados} días, pero solo evaluaste ${evaluados} días.`,
-          },
-          { status: 400 },
-        );
-      }
-    }
-
-    // 5. AGRUPAR Y CALCULAR PROMEDIOS MENSUALES
+    // 4. AGREGACIÓN DE DATOS MENSUALES
     const reporteOperadores: Record<string, any> = {};
 
-    evaluaciones.forEach((ev) => {
-      const op = ev.operador;
-      if (!reporteOperadores[op]) {
-        reporteOperadores[op] = {
-          diasTrabajados: 0,
+    evalsFiltradas.forEach((data) => {
+      const nombre = data.operador;
+      if (!reporteOperadores[nombre]) {
+        reporteOperadores[nombre] = {
           totalRetiros: 0,
-          sumaSlaPct: 0,
-          sumaTiempoMin: 0,
-          sumaPuntajeSla: 0,
-          sumaPuntajeTiempo: 0,
-          sumaPuntualidad: 0,
-          sumaProactividad: 0,
-          sumaNotaFinal: 0,
+          dias: 0,
+          sumaSla: 0,
+          sumaTiempo: 0,
+          sumaNota: 0,
           inconvenientes: 0,
         };
       }
-
-      reporteOperadores[op].diasTrabajados += 1;
-      reporteOperadores[op].totalRetiros += ev.totalRetiros;
-      reporteOperadores[op].sumaSlaPct += ev.cumplimientoSlaPct;
-      reporteOperadores[op].sumaTiempoMin += ev.tiempoPromedioMin;
-      reporteOperadores[op].sumaPuntajeSla += ev.puntajeSla;
-      reporteOperadores[op].sumaPuntajeTiempo += ev.puntajeTiempo;
-      reporteOperadores[op].sumaPuntualidad += ev.puntualidad;
-      reporteOperadores[op].sumaProactividad += ev.proactividad;
-      reporteOperadores[op].sumaNotaFinal += ev.puntajeFinal;
-      if (ev.tuvoInconveniente) reporteOperadores[op].inconvenientes += 1;
+      reporteOperadores[nombre].dias++;
+      reporteOperadores[nombre].totalRetiros += data.totalRetiros;
+      reporteOperadores[nombre].sumaSla += data.cumplimientoSlaPct;
+      reporteOperadores[nombre].sumaTiempo += data.tiempoPromedioMin;
+      reporteOperadores[nombre].sumaNota += data.puntajeFinal;
+      if (data.tuvoInconveniente) reporteOperadores[nombre].inconvenientes++;
     });
 
-    // 6. GUARDAR EN LA BASE DE DATOS MENSULARES (BATCH)
     const batch = writeBatch(db);
-    const mensualesRef = collection(db, "evaluaciones_mensuales");
-    let procesados = 0;
 
-    for (const [nombre, data] of Object.entries(reporteOperadores)) {
-      const dias = data.diasTrabajados;
+    // Guardar promedios mensuales
+    for (const [nombre, metrics] of Object.entries(reporteOperadores)) {
       const docId = `${mes}_${nombre.replace(/\s+/g, "_").toLowerCase()}`;
-      const docRef = doc(mensualesRef, docId);
+      const docRef = doc(db, "evaluaciones_mensuales", docId);
 
-      batch.set(docRef, {
-        id: docId,
-        mes: mes,
-        operador: nombre,
-        diasTrabajados: dias,
-        totalRetiros: data.totalRetiros,
-        promedioSlaPct: Number((data.sumaSlaPct / dias).toFixed(2)),
-        promedioTiempoMin: Number((data.sumaTiempoMin / dias).toFixed(2)),
-        promedioPuntajeSla: Number((data.sumaPuntajeSla / dias).toFixed(2)),
-        promedioPuntajeTiempo: Number(
-          (data.sumaPuntajeTiempo / dias).toFixed(2),
-        ),
-        promedioPuntualidad: Number((data.sumaPuntualidad / dias).toFixed(2)),
-        promedioProactividad: Number((data.sumaProactividad / dias).toFixed(2)),
-        notaFinalMes: Number((data.sumaNotaFinal / dias).toFixed(2)),
-        totalInconvenientes: data.inconvenientes,
-        fechaCierre: new Date().toISOString(),
-      });
-      procesados++;
+      batch.set(
+        docRef,
+        {
+          id: docId,
+          mes,
+          operador: nombre,
+          totalRetiros: metrics.totalRetiros,
+          diasTrabajados: metrics.dias,
+          promedioSlaPct: Number((metrics.sumaSla / metrics.dias).toFixed(1)),
+          promedioTiempoMin: Number(
+            (metrics.sumaTiempo / metrics.dias).toFixed(1),
+          ),
+          notaFinalMes: Number((metrics.sumaNota / metrics.dias).toFixed(1)),
+          totalInconvenientes: metrics.inconvenientes,
+          grupoMoneda: grupo,
+          fechaCierre: new Date().toISOString(),
+        },
+        { merge: true },
+      );
     }
+
+    // Registrar estatus del cierre para este grupo
+    const statusId = `${mes}_${grupo}`;
+    const statusRef = doc(db, "cierres_mensuales_status", statusId);
+    batch.set(statusRef, {
+      mes,
+      grupo,
+      estado: "Cerrado",
+      cerradoPor: rol,
+      fechaCierre: new Date().toISOString(),
+    });
 
     await batch.commit();
 
-    return NextResponse.json({
-      success: true,
-      message: `Mes cerrado exitosamente. Se generaron reportes para ${procesados} operadores.`,
-    });
+    return NextResponse.json({ success: true, message: "Cierre completado" });
   } catch (error) {
-    console.error("Error cerrando mes:", error);
     return NextResponse.json(
-      { success: false, error: "Error interno del servidor." },
+      { success: false, error: "Error en el servidor" },
       { status: 500 },
     );
   }

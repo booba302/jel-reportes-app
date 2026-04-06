@@ -18,6 +18,7 @@ import * as xlsx from "xlsx";
 import { toPng } from "html-to-image";
 import { jsPDF } from "jspdf";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useAuth } from "@/app/context/AuthContext"; // 🔴 IMPORTAMOS EL CONTEXTO
 
 import {
   Trophy,
@@ -64,13 +65,24 @@ export default function CierreMensualPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Lee el mes de la URL si existe (útil para cuando le des a "Volver al ranking" desde el expediente)
+  // 🔴 OBTENEMOS EL ROL DEL USUARIO
+  const { userData } = useAuth();
+  const userRole = userData?.rol?.toLowerCase().trim() || "";
+  const isAdmin =
+    userRole.includes("admin") || userRole.includes("administrador");
+
+  // 🔴 CORRECCIÓN: Evaluamos "inter" ANTES que "nacional" para evitar el falso positivo
+  const isInter =
+    userRole.includes("internacional") || userRole.includes("inter");
+  const esNacional = !isInter && userRole.includes("nacional");
+
+  const grupoUsuario = isInter ? "inter" : "nacional";
+
   const mesQuery = searchParams.get("mes");
   const [mesActual, setMesActual] = useState<string>(
     mesQuery || format(new Date(), "yyyy-MM"),
   );
 
-  // Para controlar el año dentro del nuevo selector de Shadcn
   const [pickerYear, setPickerYear] = useState(
     parseInt(format(new Date(), "yyyy")),
   );
@@ -94,19 +106,16 @@ export default function CierreMensualPage() {
   const [mesCerrado, setMesCerrado] = useState(false);
   const [mesYaTermino, setMesYaTermino] = useState(false);
 
-  // Datos procesados Globales
   const [rawEvalsGuardados, setRawEvalsGuardados] = useState<any[]>([]);
   const [reportesMensuales, setReportesMensuales] = useState<any[]>([]);
   const [metricasGlobales, setMetricasGlobales] = useState<any>(null);
   const [estadoAuditoria, setEstadoAuditoria] = useState<any>(null);
 
-  // --- ESTADOS PARA PDF ---
   const [isExportingPDF, setIsExportingPDF] = useState(false);
   const [exportingType, setExportingType] = useState<
     "GLOBAL" | "DETALLE" | null
   >(null);
 
-  // --- MOTOR DEFINITIVO ANTI-RECORTE ---
   const handleExportPDF = (tipo: "GLOBAL" | "DETALLE") => {
     setIsExportingPDF(true);
     setExportingType(tipo);
@@ -122,7 +131,6 @@ export default function CierreMensualPage() {
       viewportMeta.setAttribute("content", "width=1200, initial-scale=1");
     }
 
-    // Identificamos qué vista capturar y su nombre de archivo
     const elementId = "cierre-mensual-global";
     const nombreArchivo = `Cierre_Mensual_${mesActual}.pdf`;
 
@@ -143,7 +151,6 @@ export default function CierreMensualPage() {
           height: element.scrollHeight,
           style: { width: "1200px" },
           filter: (node) => {
-            // Ignoramos todo lo que tenga esta etiqueta
             if (
               node instanceof HTMLElement &&
               node.dataset.html2canvasIgnore === "true"
@@ -197,8 +204,7 @@ export default function CierreMensualPage() {
       const start = `${mesActual}-01T00:00:00.000Z`;
       const end = `${mesActual}-31T23:59:59.999Z`;
 
-      // 🔴 LISTA DE EXCLUSIÓN
-      const JEFES_EXCLUIDOS = ["Franklin Sánchez", "Marvin", "Evelyn"];
+      const JEFES_EXCLUIDOS = ["Franklin Sanchez", "Marvin", "Evelyn"];
 
       const q = query(
         collection(db, "evaluaciones_desempeno"),
@@ -208,23 +214,32 @@ export default function CierreMensualPage() {
       const snapshot = await getDocs(q);
       const diarias: any[] = [];
 
-      // 🔴 FILTRO 1: Ocultar evaluaciones diarias de los jefes
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
         if (!JEFES_EXCLUIDOS.includes(data.operador)) {
+          // 🔴 FILTRO 1 CORREGIDO: Separamos los datos para que cada rol vea solo lo suyo
+          if (!isAdmin) {
+            const isDataNacional = data.grupoMoneda === "nacional";
+            // Si el usuario es nacional y la data no lo es, la ignoramos
+            if (esNacional && !isDataNacional) return;
+            // Si el usuario es internacional y la data ES nacional (VES), la ignoramos
+            if (isInter && isDataNacional) return;
+          }
+
           diarias.push(data);
         }
       });
       setRawEvalsGuardados(diarias);
 
-      const docCierreRef = doc(db, "evaluaciones_mensuales", mesActual);
+      // 🔴 FILTRO 2: Buscamos el documento de cierre específico del grupo
+      const cierreDocId = isAdmin ? mesActual : `${mesActual}_${grupoUsuario}`;
+      const docCierreRef = doc(db, "evaluaciones_mensuales", cierreDocId);
       const docCierreSnap = await getDoc(docCierreRef);
 
       if (docCierreSnap.exists()) {
         const data = docCierreSnap.data();
         setMesCerrado(true);
 
-        // 🔴 FILTRO 2: Si el mes ya estaba cerrado en el pasado, limpiamos a los jefes del ranking visual
         const rankingLimpio = (data.ranking || []).filter(
           (r: any) => !JEFES_EXCLUIDOS.includes(r.operador),
         );
@@ -235,18 +250,25 @@ export default function CierreMensualPage() {
       } else {
         setMesCerrado(false);
         const agtMap: Record<string, any> = {};
+
         let globalRetiros = 0,
           globalSlaCumplido = 0,
           globalTiempoMins = 0;
-        let totalEvals = 0,
-          confirmadas = 0,
-          pendientes = 0;
+
+        // 🔴 FILTRO 3: Nuevo mapa para contar DÍAS y no registros individuales
+        const diasMap: Record<string, { total: number; confirmados: number }> =
+          {};
 
         diarias.forEach((ev) => {
-          totalEvals++;
-          if (ev.estado === "Confirmado") confirmadas++;
-          else pendientes++;
+          // Lógica de Conteo de Días Únicos
+          const fechaCorta = ev.fecha.split("T")[0];
+          if (!diasMap[fechaCorta]) {
+            diasMap[fechaCorta] = { total: 0, confirmados: 0 };
+          }
+          diasMap[fechaCorta].total++;
+          if (ev.estado === "Confirmado") diasMap[fechaCorta].confirmados++;
 
+          // Lógica Original de Rendimiento
           const op = ev.operador;
           if (!agtMap[op]) {
             agtMap[op] = {
@@ -281,6 +303,16 @@ export default function CierreMensualPage() {
           agtMap[op].sumNotaFinal += Number(ev.puntajeFinal) || 0;
           if (ev.tuvoInconveniente) agtMap[op].inconvenientes++;
           if (!ev.completoTurno) agtMap[op].turnosIncompletos++;
+        });
+
+        // 🔴 Calculamos totales de la auditoría basados en días
+        const totalDiasUnicos = Object.keys(diasMap).length;
+        let diasConfirmados = 0;
+        let diasPendientes = 0;
+
+        Object.values(diasMap).forEach((dia) => {
+          if (dia.total === dia.confirmados) diasConfirmados++;
+          else diasPendientes++;
         });
 
         const ranking = Object.values(agtMap)
@@ -323,11 +355,13 @@ export default function CierreMensualPage() {
               ? (globalTiempoMins / globalRetiros).toFixed(1)
               : "0.0",
         });
+
+        // Asignamos las variables de los días
         setEstadoAuditoria({
-          totalEvals,
-          confirmadas,
-          pendientes,
-          hayDatos: totalEvals > 0,
+          totalEvals: totalDiasUnicos,
+          confirmadas: diasConfirmados,
+          pendientes: diasPendientes,
+          hayDatos: totalDiasUnicos > 0,
         });
       }
     } catch (error) {
@@ -339,17 +373,23 @@ export default function CierreMensualPage() {
 
   useEffect(() => {
     fetchData();
-  }, [mesActual]);
+  }, [mesActual, userRole]);
 
   const handleCerrarMes = async () => {
     setIsClosing(true);
     try {
-      await setDoc(doc(db, "evaluaciones_mensuales", mesActual), {
+      // 🔴 FILTRO 4: Guardamos el estado bajo el ID del grupo para no pisarse
+      const cierreDocId = isAdmin ? mesActual : `${mesActual}_${grupoUsuario}`;
+
+      await setDoc(doc(db, "evaluaciones_mensuales", cierreDocId), {
         mes: mesActual,
+        grupo: isAdmin ? "Global" : grupoUsuario,
         cerradoEl: new Date().toISOString(),
+        cerradoPor: userData?.nombre || "Sistema",
         metrics: metricasGlobales,
         ranking: reportesMensuales,
       });
+
       toast.success("Mes Cerrado", {
         description: "Los promedios mensuales han sido guardados.",
       });
@@ -379,19 +419,16 @@ export default function CierreMensualPage() {
     xlsx.writeFile(wb, `Cierre_Mensual_${mesActual}.xlsx`);
   };
 
-  // RENDER: VISTA NORMAL (Cierre Mensual General)
   return (
     <div
       id="cierre-mensual-global"
       className={cn(
         "p-6 mx-auto space-y-8 animate-in fade-in duration-500 print:p-0 print:max-w-full print:bg-white",
-        // FIX 1: Aquí es donde debe ir la magia de los 1200px, en el div principal que se fotografía
         isExportingPDF && exportingType === "GLOBAL"
           ? "absolute top-0 left-0 w-[1200px] min-w-[1200px] bg-[#f8fafc] z-[9998] shadow-none"
           : "max-w-7xl",
       )}
     >
-      {/* FIX 2: La pantalla de carga debe ser un simple 'fixed inset-0', la tenías mezclada con los 1200px */}
       {isExportingPDF && (
         <div
           data-html2canvas-ignore="true"
@@ -417,8 +454,10 @@ export default function CierreMensualPage() {
 
       <div className="flex flex-col md:flex-row justify-between md:items-end gap-4 bg-white p-5 rounded-lg border shadow-sm print:hidden">
         <div>
+          {/* 🔴 TÍTULO DINÁMICO CORREGIDO */}
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-            <Award className="w-8 h-8 text-primary" /> Cierre Mensual
+            <Award className="w-8 h-8 text-primary" /> Cierre Mensual{" "}
+            {isAdmin ? "" : isInter ? "Internacional" : "Nacional"}
           </h1>
           <p className="text-slate-500 mt-1">
             Revisión de métricas exactas y evaluación final por operador.
@@ -587,7 +626,7 @@ export default function CierreMensualPage() {
                     </div>
                   </div>
                 </div>
-                {/* NUEVO BOTÓN CON ALERT DIALOG DE SHADCN */}
+
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button
@@ -713,7 +752,6 @@ export default function CierreMensualPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-0 print:pt-4">
-                  {/* FIX 3: Quitamos el overflow-x-auto cuando exportamos a PDF para que no corte el lado derecho */}
                   <div
                     className={cn(
                       "print:overflow-visible print:w-full print:max-w-full",

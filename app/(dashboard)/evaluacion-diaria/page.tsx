@@ -108,7 +108,7 @@ export default function EvaluacionDesempenoPage() {
         // FILTRADO POR ROL
         if (!isAdmin) {
           if (
-            userRole === "agente_retiro_inter" &&
+            userRole === "agente_retiros_internacional" &&
             item.grupoMoneda === "nacional"
           )
             return;
@@ -229,7 +229,7 @@ export default function EvaluacionDesempenoPage() {
             Panel{" "}
             {isAdmin
               ? "Administrador"
-              : userRole === "agente_retiro_inter"
+              : userRole === "agente_retiros_internacional"
                 ? "Internacional"
                 : "Nacional"}
           </p>

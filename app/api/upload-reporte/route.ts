@@ -19,6 +19,7 @@ function transformarFila(
   fila: FilaReporteCruda,
   moneda: string,
   fechaReporte: string,
+  rol: string, // 🔴 NUEVO PARÁMETRO: Recibimos el rol
 ) {
   const fechaOperacion = new Date(fila["Fecha de la operación"]);
   const fechaUpdate = new Date(fila["Update date"]);
@@ -26,7 +27,11 @@ function transformarFila(
   const diferenciaMs = fechaUpdate.getTime() - fechaOperacion.getTime();
   const minutos = diferenciaMs / (1000 * 60);
   const tiempo = Number(minutos.toFixed(2));
-  const cumple = tiempo < 30;
+
+  // 🔴 LÓGICA DE SLA DINÁMICO: 20 min para Nacional/VES, 30 min para Internacional
+  const limiteSLA =
+    rol === "agente_retiros_nacional" || moneda === "VES" ? 20 : 30;
+  const cumple = tiempo < limiteSLA;
 
   const logUserCrudo = fila["Log user"] || "";
   let operadorFormateado = "Autopago";
@@ -71,7 +76,10 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const currency = formData.get("currency") as string;
-    const subidoPor = formData.get('subidoPor') as string;
+    const subidoPor = formData.get("subidoPor") as string;
+
+    // 🔴 CAPTURAMOS EL ROL DEL FORM DATA
+    const rol = (formData.get("rol") as string) || "";
 
     if (!file) {
       return NextResponse.json(
@@ -137,9 +145,9 @@ export async function POST(request: Request) {
 
     // PREPARAMOS TODOS LOS DATOS
     for (const [dateStr, filasDeLaFecha] of Object.entries(reportesAgrupados)) {
-      // Transformamos las filas y obtenemos su ID único
+      // 🔴 LE PASAMOS EL ROL A LA FUNCIÓN DE TRANSFORMACIÓN
       const transformadas = filasDeLaFecha.map((fila) =>
-        transformarFila(fila, currency, dateStr),
+        transformarFila(fila, currency, dateStr, rol),
       );
       todasLasOperacionesNuevas.push(...transformadas);
 
@@ -152,8 +160,8 @@ export async function POST(request: Request) {
         fechaReporte: dateStr,
         moneda: currency,
         subidoEl: new Date().toISOString(),
-        subidoPor: subidoPor || 'Sistema',
-        totalRegistros: transformadas.length
+        subidoPor: subidoPor || "Sistema",
+        totalRegistros: transformadas.length,
       });
     }
 

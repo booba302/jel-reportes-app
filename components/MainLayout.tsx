@@ -21,10 +21,22 @@ function CurrencySelector() {
   const rol = userData?.rol || "";
 
   const monedasPermitidas = useMemo(() => {
-    const normalizedRol = rol.toLowerCase();
+    const normalizedRol = rol.toLowerCase().trim();
+
     if (normalizedRol.includes("admin"))
       return ["GLOBAL", "PEN", "CLP", "MXN", "USD", "VES"];
+
+    // 🔴 LA SOLUCIÓN: Evaluamos "internacional" ANTES que "nacional"
+    if (
+      normalizedRol.includes("internacional") ||
+      normalizedRol.includes("inter")
+    )
+      return ["GLOBAL", "PEN", "CLP", "MXN", "USD"];
+
+    // Si llega hasta aquí, es porque es 100% "nacional" y no "internacional"
     if (normalizedRol.includes("nacional")) return ["VES"];
+
+    // Fallback por defecto
     return ["GLOBAL", "PEN", "CLP", "MXN", "USD"];
   }, [rol]);
 
@@ -73,7 +85,7 @@ export default function MainLayout({
             <Menu className="w-6 h-6" />
           </button>
 
-          <div className="lg:hidden font-bold text-slate-900">Reportes</div>
+          <div className="lg:hidden font-bold text-slate-900">Play</div>
 
           <div className="flex items-center gap-4 ml-auto">
             <CurrencySelector />
@@ -86,8 +98,7 @@ export default function MainLayout({
 
           {/* NUEVO FOOTER */}
           <footer className="py-4 text-center text-sm text-slate-400 border-t border-slate-200 bg-white print:hidden mt-auto">
-            Desarrollado para{" "}
-            <strong>JuegaEnLinea</strong> | v1.0 © 2026
+            Desarrollado para <strong>JuegaEnLinea</strong> | v1.0 © 2026
           </footer>
         </main>
       </div>
