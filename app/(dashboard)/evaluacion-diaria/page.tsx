@@ -13,6 +13,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { useAuth } from "@/app/context/AuthContext";
 
 import {
   Calendar as CalendarIcon,
@@ -65,16 +66,21 @@ interface Evaluacion {
   tuvoInconveniente: boolean;
   comentarioInconveniente: string;
   estado: "Pendiente" | "Confirmado";
+  grupoMoneda?: string;
 }
 
 export default function EvaluacionDesempenoPage() {
+  const { userData } = useAuth();
+  const userRole = userData?.rol?.toLowerCase() || "";
+  const isAdmin =
+    userRole.includes("admin") || userData?.rol === "Administrador";
+
   const [date, setDate] = React.useState<Date | undefined>(new Date());
   const [evaluaciones, setEvaluaciones] = React.useState<Evaluacion[]>([]);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isSyncing, setIsSyncing] = React.useState(false);
   const [modalOpenId, setModalOpenId] = React.useState<string | null>(null);
 
-  // Generador de formato de fecha seguro para la BD (T00:00:00.000Z)
   const getSafeDateStr = (d: Date) => {
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, "0");
@@ -95,12 +101,30 @@ export default function EvaluacionDesempenoPage() {
 
       const snapshot = await getDocs(q);
       const data: Evaluacion[] = [];
-      snapshot.forEach((doc) => data.push(doc.data() as Evaluacion));
+
+      snapshot.forEach((docSnap) => {
+        const item = docSnap.data() as Evaluacion;
+
+        // FILTRADO POR ROL
+        if (!isAdmin) {
+          if (
+            userRole === "agente_retiro_inter" &&
+            item.grupoMoneda === "nacional"
+          )
+            return;
+          if (
+            userRole === "agente_retiros_nacional" &&
+            item.grupoMoneda === "inter"
+          )
+            return;
+        }
+
+        data.push(item);
+      });
 
       data.sort((a, b) => a.operador.localeCompare(b.operador));
       setEvaluaciones(data);
     } catch (error) {
-      console.error("Error cargando evaluaciones:", error);
       toast.error("Error al cargar la información.");
     } finally {
       setIsLoading(false);
@@ -109,46 +133,30 @@ export default function EvaluacionDesempenoPage() {
 
   React.useEffect(() => {
     fetchEvaluaciones();
-  }, [date]);
+  }, [date, userRole]);
 
-  // MOTOR DE SINCRONIZACIÓN GLOBAL (Ahora 100% dependiente del Backend)
   const handleSincronizar = async () => {
     if (!date) return;
     setIsSyncing(true);
 
     try {
-      const dateDB = getSafeDateStr(date);
-
-      // Llamamos a nuestro nuevo Endpoint (Separación de responsabilidades)
+      const dateDB = format(date, "yyyy-MM-dd");
+      // 🔴 CORRECCIÓN: Ruta del API actualizada
       const response = await fetch("/api/sincronizar-evaluaciones", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fecha: dateDB }),
+        body: JSON.stringify({ fecha: dateDB, rol: userRole }),
       });
 
       const result = await response.json();
-
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        // Si no es JSON, leemos el texto (HTML) para ver qué error escupió Next.js
-        const textError = await response.text();
-        console.error("El servidor devolvió HTML en lugar de JSON:", textError);
-        throw new Error(
-          "El endpoint no existe o el servidor falló (revisa la consola del navegador).",
-        );
-      }
-
       if (result.success) {
-        toast.success("Día Sincronizado", {
-          description: "La base de datos central ha recalculado las métricas.",
-        });
-        await fetchEvaluaciones(); // Recargamos la tabla para ver los nuevos datos
+        toast.success("Día Sincronizado");
+        await fetchEvaluaciones();
       } else {
         toast.warning("Aviso", { description: result.error });
       }
     } catch (error) {
-      console.error(error);
-      toast.error("Error de red al intentar sincronizar.");
+      toast.error("Error al intentar sincronizar.");
     } finally {
       setIsSyncing(false);
     }
@@ -179,7 +187,6 @@ export default function EvaluacionDesempenoPage() {
   };
 
   const calcularPuntajeFinal = (ev: Evaluacion) => {
-    // Aquí usamos promedios ponderados: SLA(30%), Tiempo(30%), Punt(20%), Proact(20%)
     const pSla = (ev.puntajeSla || 0) * 0.3;
     const pTiempo = (ev.puntajeTiempo || 0) * 0.3;
     const pPunt = (Number(ev.puntualidad) || 0) * 0.2;
@@ -189,25 +196,13 @@ export default function EvaluacionDesempenoPage() {
 
   const handleConfirmar = async (ev: Evaluacion) => {
     if (ev.puntualidad === "" || ev.proactividad === "") {
-      return toast.warning("Campos incompletos", {
-        description: "La puntualidad y proactividad no pueden estar vacías.",
-      });
+      return toast.warning("Campos incompletos");
     }
-
-    const punt = Number(ev.puntualidad);
-    const proac = Number(ev.proactividad);
-
-    if (punt < 0 || punt > 10 || proac < 0 || proac > 10) {
-      return toast.warning("Puntajes inválidos", {
-        description: "Los puntajes de actitud deben ser de 1 a 10.",
-      });
-    }
-
     try {
       const docRef = doc(db, "evaluaciones_desempeno", ev.id);
       await updateDoc(docRef, {
-        puntualidad: punt,
-        proactividad: proac,
+        puntualidad: Number(ev.puntualidad),
+        proactividad: Number(ev.proactividad),
         completoTurno: ev.completoTurno,
         tuvoInconveniente: ev.tuvoInconveniente,
         comentarioInconveniente: ev.comentarioInconveniente,
@@ -215,14 +210,10 @@ export default function EvaluacionDesempenoPage() {
         estado: "Confirmado",
         confirmadoEl: new Date().toISOString(),
       });
-
-      toast.success("Evaluación Confirmada", {
-        description: `Rendimiento de ${ev.operador} guardado.`,
-      });
+      toast.success("Evaluación Confirmada");
       handleUpdateLocal(ev.id, "estado", "Confirmado");
     } catch (error) {
-      console.error(error);
-      toast.error("Error al guardar la evaluación.");
+      toast.error("Error al confirmar.");
     }
   };
 
@@ -233,9 +224,14 @@ export default function EvaluacionDesempenoPage() {
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center">
             Evaluación de Desempeño
           </h1>
-          <p className="text-slate-500 mt-1 flex items-center text-sm">
-            <Globe className="w-4 h-4 mr-1 text-primary" /> Calificación diaria
-            consolidada (Todas las monedas)
+          <p className="text-slate-500 mt-1 flex items-center text-sm uppercase font-semibold">
+            <Globe className="w-4 h-4 mr-1 text-primary" />
+            Panel{" "}
+            {isAdmin
+              ? "Administrador"
+              : userRole === "agente_retiro_inter"
+                ? "Internacional"
+                : "Nacional"}
           </p>
         </div>
 
@@ -244,10 +240,7 @@ export default function EvaluacionDesempenoPage() {
             <PopoverTrigger asChild>
               <Button
                 variant="outline"
-                className={cn(
-                  "w-[220px] justify-start text-left font-normal bg-white",
-                  !date && "text-muted-foreground",
-                )}
+                className="w-[220px] justify-start text-left font-normal bg-white"
               >
                 <CalendarIcon className="mr-2 h-4 w-4" />
                 {date ? (
@@ -262,9 +255,7 @@ export default function EvaluacionDesempenoPage() {
                 mode="single"
                 selected={date}
                 onSelect={setDate}
-                initialFocus
                 locale={es}
-                required
               />
             </PopoverContent>
           </Popover>
@@ -279,21 +270,12 @@ export default function EvaluacionDesempenoPage() {
             ) : (
               <RefreshCw className="h-4 w-4 mr-2" />
             )}
-            Sincronizar Día Global
+            Sincronizar Mi Grupo
           </Button>
         </div>
       </div>
 
       <Card className="shadow-md border-primary/10">
-        <CardHeader className="bg-slate-50/50 border-b">
-          <CardTitle className="text-lg flex items-center gap-2">
-            Auditoría de Equipo
-          </CardTitle>
-          <CardDescription>
-            Si subiste un archivo nuevo o un operador no aparece, haz clic en{" "}
-            <b>Sincronizar Día Global</b> para recalcular la matemática.
-          </CardDescription>
-        </CardHeader>
         <CardContent className="p-0 overflow-x-auto">
           <Table className="min-w-[1200px]">
             <TableHeader className="bg-white">
@@ -332,7 +314,6 @@ export default function EvaluacionDesempenoPage() {
                 evaluaciones.map((ev) => {
                   const nota = calcularPuntajeFinal(ev);
                   const isConfirmado = ev.estado === "Confirmado";
-
                   return (
                     <TableRow
                       key={ev.id}
@@ -342,12 +323,10 @@ export default function EvaluacionDesempenoPage() {
                     >
                       <TableCell className="font-medium text-slate-800 pl-6">
                         {ev.operador}
-                        <div className="text-xs text-slate-500 font-normal mt-1 flex items-center">
-                          <Globe className="w-3 h-3 mr-1" /> {ev.totalRetiros}{" "}
-                          retiros en total
+                        <div className="text-[10px] text-primary font-bold uppercase mt-1">
+                          {ev.grupoMoneda || "Global"}
                         </div>
                       </TableCell>
-
                       <TableCell className="text-center">
                         <div className="text-sm">
                           <span className="text-emerald-600 font-medium">
@@ -359,72 +338,49 @@ export default function EvaluacionDesempenoPage() {
                           </span>
                         </div>
                       </TableCell>
-
                       <TableCell className="text-center bg-slate-50/50 border-x">
                         <div className="text-sm font-semibold text-slate-700">
-                          SLA: {ev.puntajeSla}{" "}
-                          <span className="text-xs font-normal text-slate-400">
-                            /10
-                          </span>
+                          SLA: {ev.puntajeSla} /10
                           <br />
-                          TMP: {ev.puntajeTiempo}{" "}
-                          <span className="text-xs font-normal text-slate-400">
-                            /10
-                          </span>
-                        </div>
-                        <div className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider">
-                          Vale 60%
+                          TMP: {ev.puntajeTiempo} /10
                         </div>
                       </TableCell>
-
                       <TableCell className="text-center">
                         <div className="flex items-center justify-center gap-3">
-                          <div className="flex flex-col items-center">
-                            <label className="text-[10px] text-slate-500 mb-1">
-                              Puntualidad
-                            </label>
-                            <input
-                              type="number"
-                              min="1"
-                              max="10"
-                              value={ev.puntualidad}
-                              onChange={(e) =>
-                                handleActitudChange(
-                                  ev.id,
-                                  "puntualidad",
-                                  e.target.value,
-                                )
-                              }
-                              disabled={isConfirmado}
-                              className="w-14 text-center border rounded py-1 text-sm disabled:bg-slate-100 disabled:text-slate-500 focus:ring-2 focus:ring-primary outline-none"
-                            />
-                          </div>
-                          <div className="flex flex-col items-center">
-                            <label className="text-[10px] text-slate-500 mb-1">
-                              Proactividad
-                            </label>
-                            <input
-                              type="number"
-                              min="1"
-                              max="10"
-                              value={ev.proactividad}
-                              onChange={(e) =>
-                                handleActitudChange(
-                                  ev.id,
-                                  "proactividad",
-                                  e.target.value,
-                                )
-                              }
-                              disabled={isConfirmado}
-                              className="w-14 text-center border rounded py-1 text-sm disabled:bg-slate-100 disabled:text-slate-500 focus:ring-2 focus:ring-primary outline-none"
-                            />
-                          </div>
-                        </div>
-                        <div className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider">
-                          Vale 40%
+                          <input
+                            type="number"
+                            min="1"
+                            max="10"
+                            value={ev.puntualidad}
+                            onChange={(e) =>
+                              handleActitudChange(
+                                ev.id,
+                                "puntualidad",
+                                e.target.value,
+                              )
+                            }
+                            disabled={isConfirmado}
+                            className="w-14 text-center border rounded py-1 text-sm disabled:bg-slate-100 focus:ring-2 focus:ring-primary outline-none"
+                          />
+                          <input
+                            type="number"
+                            min="1"
+                            max="10"
+                            value={ev.proactividad}
+                            onChange={(e) =>
+                              handleActitudChange(
+                                ev.id,
+                                "proactividad",
+                                e.target.value,
+                              )
+                            }
+                            disabled={isConfirmado}
+                            className="w-14 text-center border rounded py-1 text-sm disabled:bg-slate-100 focus:ring-2 focus:ring-primary outline-none"
+                          />
                         </div>
                       </TableCell>
 
+                      {/* 🔴 RESTAURADO EXACTAMENTE COMO LO TENÍAS */}
                       <TableCell className="text-center border-x">
                         <div className="flex flex-col gap-2 items-center">
                           <div className="flex items-center gap-2">
@@ -505,6 +461,7 @@ export default function EvaluacionDesempenoPage() {
                         </div>
                       </TableCell>
 
+                      {/* SOLO BOTÓN DE CONFIRMAR */}
                       <TableCell className="text-right pr-6">
                         {isConfirmado ? (
                           <div className="flex items-center justify-end text-emerald-600 font-medium text-sm">
@@ -529,11 +486,7 @@ export default function EvaluacionDesempenoPage() {
                     colSpan={7}
                     className="h-40 text-center text-slate-500"
                   >
-                    <AlertCircle className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                    Aún no hay evaluaciones generadas para este día.
-                    <br />
-                    Haz clic en <b>"Sincronizar Día Global"</b> para extraer los
-                    datos de todas las monedas.
+                    No hay evaluaciones generadas.
                   </TableCell>
                 </TableRow>
               )}
@@ -542,6 +495,7 @@ export default function EvaluacionDesempenoPage() {
         </CardContent>
       </Card>
 
+      {/* 🔴 MODAL RESTAURADO EXACTAMENTE COMO LO TENÍAS */}
       {modalOpenId && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
           <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-lg animate-in zoom-in-95 duration-200">

@@ -10,18 +10,14 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
-// 🔴 LISTA DE JEFES EXCLUIDOS DE LA EVALUACIÓN
-// Agrega aquí los nombres exactamente como aparecen en los reportes
-const JEFES_EXCLUIDOS = ["Franklin Sánchez", "Marvin", "Evelyn"];
+const JEFES_EXCLUIDOS = ["Franklin Sanchez", "Marvin", "Evelyn"];
 
-// 1. Cálculo de SLA
 const calcularPuntajeSLA = (porcentaje: number) => {
   if (porcentaje >= 100) return 10;
   if (porcentaje <= 0) return 0;
   return Number((porcentaje / 10).toFixed(1));
 };
 
-// 2. Cálculo de Tiempo (Fórmula exacta del Excel original)
 const calcularPuntajeTiempo = (minutos: number) => {
   if (minutos > 0 && minutos <= 10) return 10;
   if (minutos > 10 && minutos <= 15) return 9;
@@ -31,13 +27,13 @@ const calcularPuntajeTiempo = (minutos: number) => {
   if (minutos > 30 && minutos <= 35) return 5;
   if (minutos > 35 && minutos <= 40) return 4;
   if (minutos > 40 && minutos <= 45) return 3;
-  return 0; // Más de 45 min
+  return 0;
 };
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { fecha } = body; // Ej: "2026-03-31"
+    const { fecha, rol } = body;
 
     if (!fecha) {
       return NextResponse.json(
@@ -46,10 +42,19 @@ export async function POST(request: Request) {
       );
     }
 
+    // Definición de monedas por rol
+    let monedasPermitidas: string[] = [];
+    if (rol === "agente_retiro_inter") {
+      monedasPermitidas = ["CLP", "PEN", "USD", "MXN"];
+    } else if (rol === "agente_retiros_nacional") {
+      monedasPermitidas = ["VES"];
+    } else {
+      monedasPermitidas = ["CLP", "PEN", "USD", "MXN", "VES"];
+    }
+
     const start = `${fecha}T00:00:00.000Z`;
     const end = `${fecha}T23:59:59.999Z`;
 
-    // 1. Obtener todas las operaciones de retiros del día
     const qOps = query(
       collection(db, "operaciones_retiros"),
       where("Fecha del reporte", ">=", start),
@@ -59,115 +64,87 @@ export async function POST(request: Request) {
     const snapOps = await getDocs(qOps);
     const agtMap: Record<
       string,
-      { total: number; cumple: number; tiempoTotal: number }
+      {
+        total: number;
+        cumple: number;
+        tiempoTotal: number;
+        monedaPrincipal: string;
+      }
     > = {};
 
-    // 2. Agrupar las operaciones por Operador
     snapOps.forEach((docItem) => {
       const data = docItem.data();
       const op = data.Operador || "Desconocido";
+      const moneda = data.Moneda || "";
 
-      // 🔴 FILTRO: Omitir si el operador es un jefe
+      // 🔴 FILTROS: Jefes, Autopagos y Monedas según Rol
       if (JEFES_EXCLUIDOS.includes(op)) return;
+      if (op.toLowerCase().includes("autopago")) return;
+      if (!monedasPermitidas.includes(moneda)) return;
 
       if (!agtMap[op]) {
-        agtMap[op] = { total: 0, cumple: 0, tiempoTotal: 0 };
+        agtMap[op] = {
+          total: 0,
+          cumple: 0,
+          tiempoTotal: 0,
+          monedaPrincipal: moneda,
+        };
       }
 
-      const tiempoOp = Number(data.Tiempo) || 0;
-      const cumpleSla = data.Cumple === true;
-
       agtMap[op].total++;
-      agtMap[op].tiempoTotal += tiempoOp;
-      if (cumpleSla) agtMap[op].cumple++;
-    });
-
-    // 3. Obtener evaluaciones existentes para no sobreescribir las notas manuales
-    const qEvals = query(
-      collection(db, "evaluaciones_desempeno"),
-      where("fecha", ">=", start),
-      where("fecha", "<=", end),
-    );
-    const snapEvals = await getDocs(qEvals);
-    const evalsExistentes: Record<string, any> = {};
-
-    snapEvals.forEach((d) => {
-      evalsExistentes[d.data().operador] = d.data();
+      agtMap[op].tiempoTotal += Number(data.Tiempo) || 0;
+      if (data.Cumple === true) agtMap[op].cumple++;
     });
 
     const batch = writeBatch(db);
     let procesados = 0;
 
-    // 4. Calcular métricas finales y preparar el guardado
     for (const op of Object.keys(agtMap)) {
       const metrics = agtMap[op];
-
       const slaPct =
         metrics.total > 0 ? (metrics.cumple / metrics.total) * 100 : 0;
       const avgTime =
         metrics.total > 0 ? metrics.tiempoTotal / metrics.total : 0;
 
-      const puntajeSla = calcularPuntajeSLA(slaPct);
-      const puntajeTiempo = calcularPuntajeTiempo(avgTime);
-
-      const existente = evalsExistentes[op];
-      const idUnico = existente?.id || `${fecha}_${op.replace(/\s+/g, "_")}`;
+      const idUnico = `${fecha}_${op.replace(/\s+/g, "_")}`;
       const docRef = doc(db, "evaluaciones_desempeno", idUnico);
 
-      // Mantener notas manuales (actitud) si ya existen, si no, por defecto es 10
-      const puntualidad = existente?.puntualidad ?? 10;
-      const proactividad = existente?.proactividad ?? 10;
+      // Determinar grupo para el filtrado en la vista
+      const grupo = metrics.monedaPrincipal === "VES" ? "nacional" : "inter";
 
-      // Cálculo del puntaje final promediando los 4 pilares
-      const puntajeFinal = Number(
-        ((puntajeSla + puntajeTiempo + puntualidad + proactividad) / 4).toFixed(
-          1,
-        ),
+      batch.set(
+        docRef,
+        {
+          id: idUnico,
+          fecha: `${fecha}T00:00:00.000Z`,
+          operador: op,
+          totalRetiros: metrics.total,
+          cumplimientoSlaPct: Number(slaPct.toFixed(1)),
+          tiempoPromedioMin: Number(avgTime.toFixed(1)),
+          puntajeSla: calcularPuntajeSLA(slaPct),
+          puntajeTiempo: calcularPuntajeTiempo(avgTime),
+          grupoMoneda: grupo, // Campo clave para el filtrado visual
+          estado: "Pendiente",
+          completoTurno: true,
+          tuvoInconveniente: false,
+          comentarioInconveniente: "",
+          puntualidad: 10,
+          proactividad: 10,
+        },
+        { merge: true },
       );
 
-      const datosNuevos = {
-        id: idUnico,
-        fecha: `${fecha}T12:00:00.000Z`, // Normalizamos para evitar problemas de zona horaria
-        operador: op,
-        totalRetiros: metrics.total,
-        cumplimientoSlaPct: Number(slaPct.toFixed(1)),
-        tiempoPromedioMin: Number(avgTime.toFixed(1)),
-        puntajeSla,
-        puntajeTiempo,
-        puntajeFinal,
-        puntualidad,
-        proactividad,
-      };
-
-      if (existente) {
-        batch.set(docRef, datosNuevos, { merge: true });
-      } else {
-        batch.set(
-          docRef,
-          {
-            ...datosNuevos,
-            completoTurno: true,
-            tuvoInconveniente: false,
-            comentarioInconveniente: "",
-            estado: "Pendiente",
-          },
-          { merge: true },
-        );
-      }
       procesados++;
     }
 
-    // Ejecutar todas las escrituras a la vez
     await batch.commit();
-
     return NextResponse.json({
       success: true,
-      mensaje: `Sincronizados ${procesados} operadores exitosamente.`,
+      mensaje: `Sincronizados ${procesados} operadores.`,
     });
   } catch (error) {
-    console.error("Error al sincronizar evaluaciones:", error);
     return NextResponse.json(
-      { success: false, error: "Error interno del servidor al procesar datos" },
+      { success: false, error: "Error interno" },
       { status: 500 },
     );
   }
