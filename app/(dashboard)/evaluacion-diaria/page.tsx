@@ -71,9 +71,9 @@ interface Evaluacion {
 
 export default function EvaluacionDesempenoPage() {
   const { userData } = useAuth();
-  const userRole = userData?.rol?.toLowerCase() || "";
+  const userRole = userData?.rol?.toLowerCase().trim() || "";
   const isAdmin =
-    userRole.includes("admin") || userData?.rol === "Administrador";
+    userRole.includes("admin") || userRole.includes("administrador");
 
   const [date, setDate] = React.useState<Date | undefined>(new Date());
   const [evaluaciones, setEvaluaciones] = React.useState<Evaluacion[]>([]);
@@ -105,17 +105,11 @@ export default function EvaluacionDesempenoPage() {
       snapshot.forEach((docSnap) => {
         const item = docSnap.data() as Evaluacion;
 
-        // FILTRADO POR ROL
+        // 🔴 FILTRADO POR ROL (Ajustado con .includes para evitar errores de BD)
         if (!isAdmin) {
-          if (
-            userRole === "agente_retiros_internacional" &&
-            item.grupoMoneda === "nacional"
-          )
+          if (userRole.includes("inter") && item.grupoMoneda === "nacional")
             return;
-          if (
-            userRole === "agente_retiros_nacional" &&
-            item.grupoMoneda === "inter"
-          )
+          if (userRole.includes("nacional") && item.grupoMoneda === "inter")
             return;
         }
 
@@ -141,7 +135,6 @@ export default function EvaluacionDesempenoPage() {
 
     try {
       const dateDB = format(date, "yyyy-MM-dd");
-      // 🔴 CORRECCIÓN: Ruta del API actualizada
       const response = await fetch("/api/sincronizar-evaluaciones", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -229,7 +222,7 @@ export default function EvaluacionDesempenoPage() {
             Panel{" "}
             {isAdmin
               ? "Administrador"
-              : userRole === "agente_retiros_internacional"
+              : userRole.includes("inter")
                 ? "Internacional"
                 : "Nacional"}
           </p>
@@ -289,9 +282,16 @@ export default function EvaluacionDesempenoPage() {
                 <TableHead className="text-center w-[200px]">
                   Puntajes Automáticos
                 </TableHead>
-                <TableHead className="text-center w-[200px]">
-                  Actitud (1 a 10)
+
+                {/* 🔴 NUEVO ENCABEZADO CON SUB-ETIQUETAS */}
+                <TableHead className="text-center w-[220px]">
+                  <div>Puntajes Cualitativos</div>
+                  <div className="flex justify-center gap-2 mt-1 text-[10px] text-slate-500 font-medium uppercase">
+                    <span className="w-16 text-center">Puntual.</span>
+                    <span className="w-16 text-center">Proacti.</span>
+                  </div>
                 </TableHead>
+
                 <TableHead className="text-center w-[200px]">
                   Control de Turno
                 </TableHead>
@@ -345,8 +345,10 @@ export default function EvaluacionDesempenoPage() {
                           TMP: {ev.puntajeTiempo} /10
                         </div>
                       </TableCell>
+
+                      {/* 🔴 INPUTS ALINEADOS CON EL ENCABEZADO */}
                       <TableCell className="text-center">
-                        <div className="flex items-center justify-center gap-3">
+                        <div className="flex items-center justify-center gap-2">
                           <input
                             type="number"
                             min="1"
@@ -360,7 +362,7 @@ export default function EvaluacionDesempenoPage() {
                               )
                             }
                             disabled={isConfirmado}
-                            className="w-14 text-center border rounded py-1 text-sm disabled:bg-slate-100 focus:ring-2 focus:ring-primary outline-none"
+                            className="w-16 text-center border rounded py-1 text-sm disabled:bg-slate-100 focus:ring-2 focus:ring-primary outline-none"
                           />
                           <input
                             type="number"
@@ -375,12 +377,11 @@ export default function EvaluacionDesempenoPage() {
                               )
                             }
                             disabled={isConfirmado}
-                            className="w-14 text-center border rounded py-1 text-sm disabled:bg-slate-100 focus:ring-2 focus:ring-primary outline-none"
+                            className="w-16 text-center border rounded py-1 text-sm disabled:bg-slate-100 focus:ring-2 focus:ring-primary outline-none"
                           />
                         </div>
                       </TableCell>
 
-                      {/* 🔴 RESTAURADO EXACTAMENTE COMO LO TENÍAS */}
                       <TableCell className="text-center border-x">
                         <div className="flex flex-col gap-2 items-center">
                           <div className="flex items-center gap-2">
@@ -461,7 +462,6 @@ export default function EvaluacionDesempenoPage() {
                         </div>
                       </TableCell>
 
-                      {/* SOLO BOTÓN DE CONFIRMAR */}
                       <TableCell className="text-right pr-6">
                         {isConfirmado ? (
                           <div className="flex items-center justify-end text-emerald-600 font-medium text-sm">
@@ -495,7 +495,6 @@ export default function EvaluacionDesempenoPage() {
         </CardContent>
       </Card>
 
-      {/* 🔴 MODAL RESTAURADO EXACTAMENTE COMO LO TENÍAS */}
       {modalOpenId && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
           <div className="bg-white p-6 rounded-xl shadow-2xl w-full max-w-lg animate-in zoom-in-95 duration-200">
