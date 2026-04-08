@@ -29,9 +29,8 @@ function transformarFila(
   const tiempo = Number(minutos.toFixed(2));
 
   // 🔴 LÓGICA DE SLA DINÁMICO: 20 min para Nacional/VES, 30 min para Internacional
-  const limiteSLA =
-    rol === "agente_retiros_nacional" || moneda === "VES" ? 20 : 30;
-  const cumple = tiempo < limiteSLA;
+  const limiteSLA = 25;
+  const cumple = tiempo <= limiteSLA;
 
   const logUserCrudo = fila["Log user"] || "";
   let operadorFormateado = "Autopago";
