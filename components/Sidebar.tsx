@@ -94,7 +94,7 @@ const menuGroups: MenuGroup[] = [
         icon: Globe,
         href: "/monitor-regional",
         color: "text-indigo-400",
-        allowedRoles: ["agente_retiros_internacional"], // NUEVO: Solo este rol (y el admin) podrán verlo
+        allowedRoles: ["agente_retiros_internacional"],
       },
       {
         label: "Cierre Mensual",
@@ -134,7 +134,6 @@ export function Sidebar({
   const isAdmin =
     userRole.includes("admin") || userData?.rol === "Administrador";
 
-  // Función maestra para verificar permisos de cada item
   const hasAccess = (entity: MenuItem | MenuGroup) => {
     if (isAdmin) return true;
     if ("requireAdmin" in entity && entity.requireAdmin && !isAdmin)
@@ -199,11 +198,21 @@ export function Sidebar({
           className="h-16 flex items-center justify-between px-6 bg-slate-950/50 border-b border-slate-800 shrink-0 hover:bg-slate-900/80 transition-colors group"
         >
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-blue-600 flex items-center justify-center shadow-lg shadow-primary/20 group-hover:scale-105 transition-transform">
-              <span className="text-white font-bold text-lg">R</span>
+            {/* 🔴 CONTENEDOR OSCURO PARA EL LOGO */}
+            <div className="bg-slate-900 p-1.5 rounded-lg h-9 w-11 flex items-center justify-center border border-slate-700 shadow-sm group-hover:scale-105 transition-transform">
+              <img
+                src="/logo.png"
+                alt="Logo"
+                className="h-full w-auto object-contain"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                  e.currentTarget.parentElement!.innerHTML =
+                    '<span class="text-white font-bold text-base">R</span>';
+                }}
+              />
             </div>
             <span className="font-bold text-xl text-white tracking-tight">
-              Reportes
+              PayoutMetrics
             </span>
           </div>
           <button
@@ -220,7 +229,7 @@ export function Sidebar({
         <div className="flex-1 overflow-y-auto py-6 px-4 space-y-6 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
           {menuGroups.map((group) => {
             if (!hasAccess(group)) return null;
-            
+
             const hasVisibleItems = group.items.some((item) => hasAccess(item));
             if (!hasVisibleItems) return null;
 
@@ -252,7 +261,6 @@ export function Sidebar({
                   )}
                 >
                   {group.items.map((item) => {
-                    // Evaluamos el acceso individual de cada item
                     if (!hasAccess(item)) return null;
 
                     const isActive = pathname === item.href;

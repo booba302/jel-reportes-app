@@ -5,7 +5,15 @@ import { useState } from "react";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
-import { Lock, Mail, Loader2, AlertCircle, Eye, EyeOff } from "lucide-react";
+import {
+  Lock,
+  Mail,
+  Loader2,
+  AlertCircle,
+  Eye,
+  EyeOff,
+  BarChart3,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
@@ -24,7 +32,7 @@ export default function LoginPage() {
 
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      toast.success("Bienvenido al sistema");
+      toast.success("Bienvenido a PayoutMetrics");
       router.push("/");
     } catch (err: any) {
       console.error(err);
@@ -43,13 +51,30 @@ export default function LoginPage() {
 
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-8 relative z-10">
         <div className="text-center mb-8">
-          <div className="mx-auto w-16 h-16 bg-primary rounded-xl flex items-center justify-center shadow-lg mb-4">
-            <span className="font-bold text-3xl text-white">R</span>
+          {/* 🔴 ESPACIO PARA EL LOGO DE LA EMPRESA (CON FONDO OSCURO) */}
+          <div className="mx-auto flex items-center justify-center h-20 w-fit min-w-[140px] bg-slate-900 p-4 rounded-xl shadow-md mb-5 border border-slate-700">
+            <img
+              src="/logo-empresa.png"
+              alt="Logo Empresa"
+              className="h-full w-auto object-contain"
+              onError={(e) => {
+                // Si no encuentra la imagen, muestra este icono de respaldo temporal
+                e.currentTarget.style.display = "none";
+                e.currentTarget.parentElement!.innerHTML = `
+                  <div class="flex items-center justify-center">
+                    <svg class="w-8 h-8 text-slate-300" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><line x1="3" x2="21" y1="9" y2="9"/><line x1="9" x2="9" y1="21" y2="9"/></svg>
+                  </div>
+                `;
+              }}
+            />
           </div>
-          <h1 className="text-2xl font-bold text-slate-800">
-            Acceso al Sistema
+
+          {/* 🔴 NUEVO NOMBRE DE LA APLICACIÓN */}
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-800">
+            Payout<span className="text-primary">Metrics</span>
           </h1>
-          <p className="text-slate-500 text-sm mt-2">
+          <p className="text-slate-500 text-sm mt-2 font-medium flex items-center justify-center gap-1.5">
+            <BarChart3 className="w-4 h-4 text-primary/70" />
             Plataforma de Auditoría y Rendimiento
           </p>
         </div>
