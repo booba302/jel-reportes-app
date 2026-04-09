@@ -94,7 +94,7 @@ const menuGroups: MenuGroup[] = [
         icon: Globe,
         href: "/monitor-regional",
         color: "text-indigo-400",
-        allowedRoles: ["agente_retiros_internacional"],
+        requireAdmin: true,
       },
       {
         label: "Cierre Mensual",
