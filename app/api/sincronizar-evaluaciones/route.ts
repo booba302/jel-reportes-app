@@ -19,7 +19,8 @@ const calcularPuntajeSLA = (porcentaje: number) => {
 };
 
 const calcularPuntajeTiempo = (minutos: number) => {
-  if (minutos > 0 && minutos <= 10) return 10;
+  // 🔴 CORRECCIÓN: Se agrega >= 0 por si un operador tiene todos sus retiros exonerados
+  if (minutos >= 0 && minutos <= 10) return 10;
   if (minutos > 10 && minutos <= 15) return 9;
   if (minutos > 15 && minutos <= 20) return 8;
   if (minutos > 20 && minutos <= 25) return 7;
@@ -62,37 +63,52 @@ export async function POST(request: Request) {
     );
 
     const snapOps = await getDocs(qOps);
+
+    // 🔴 NUEVA ESTRUCTURA: Separamos lo Total de lo Evaluable
     const agtMap: Record<
       string,
       {
-        total: number;
-        cumple: number;
-        tiempoTotal: number;
+        totalGeneral: number; // Volumen de trabajo total
+        totalEvaluable: number; // Solo los NO exonerados
+        cumpleEvaluable: number;
+        tiempoEvaluable: number;
         monedaPrincipal: string;
       }
     > = {};
+
     snapOps.forEach((docItem) => {
       const data = docItem.data();
       const op = data.Operador || "Desconocido";
       const moneda = data.Moneda || "";
 
-      // 🔴 FILTROS: Jefes, Autopagos y Monedas según Rol
+      // FILTROS: Jefes, Autopagos y Monedas según Rol
       if (JEFES_EXCLUIDOS.includes(op)) return;
       if (op.toLowerCase().includes("autopago")) return;
       if (!monedasPermitidas.includes(moneda)) return;
 
       if (!agtMap[op]) {
         agtMap[op] = {
-          total: 0,
-          cumple: 0,
-          tiempoTotal: 0,
+          totalGeneral: 0,
+          totalEvaluable: 0,
+          cumpleEvaluable: 0,
+          tiempoEvaluable: 0,
           monedaPrincipal: moneda,
         };
       }
 
-      agtMap[op].total++;
-      agtMap[op].tiempoTotal += Number(data.Tiempo) || 0;
-      if (data.Cumple === true) agtMap[op].cumple++;
+      // Sumamos al volumen general siempre
+      agtMap[op].totalGeneral++;
+
+      // 🔴 REVISAMOS SI ESTÁ EXONERADO (Tiene comentario de brecha)
+      const isExonerated =
+        data.comentarioBrecha && data.comentarioBrecha.trim() !== "";
+
+      // Si no está exonerado, afecta sus métricas
+      if (!isExonerated) {
+        agtMap[op].totalEvaluable++;
+        agtMap[op].tiempoEvaluable += Number(data.Tiempo) || 0;
+        if (data.Cumple === true) agtMap[op].cumpleEvaluable++;
+      }
     });
 
     const batch = writeBatch(db);
@@ -100,15 +116,22 @@ export async function POST(request: Request) {
 
     for (const op of Object.keys(agtMap)) {
       const metrics = agtMap[op];
+
+      // 🔴 CÁLCULO FINAL: Basado SOLO en los evaluables
+      // Si totalEvaluable es 0 (ej. todos fueron exonerados), se le da 100% de SLA y 0 min promedio.
       const slaPct =
-        metrics.total > 0 ? (metrics.cumple / metrics.total) * 100 : 0;
+        metrics.totalEvaluable > 0
+          ? (metrics.cumpleEvaluable / metrics.totalEvaluable) * 100
+          : 100;
+
       const avgTime =
-        metrics.total > 0 ? metrics.tiempoTotal / metrics.total : 0;
+        metrics.totalEvaluable > 0
+          ? metrics.tiempoEvaluable / metrics.totalEvaluable
+          : 0;
 
       const idUnico = `${fecha}_${op.replace(/\s+/g, "_")}`;
       const docRef = doc(db, "evaluaciones_desempeno", idUnico);
 
-      // Determinar grupo para el filtrado en la vista
       const grupo = metrics.monedaPrincipal === "VES" ? "nacional" : "inter";
 
       batch.set(
@@ -117,12 +140,12 @@ export async function POST(request: Request) {
           id: idUnico,
           fecha: `${fecha}T00:00:00.000Z`,
           operador: op,
-          totalRetiros: metrics.total,
+          totalRetiros: metrics.totalGeneral, // Mostramos su volumen real de trabajo
           cumplimientoSlaPct: Number(slaPct.toFixed(1)),
           tiempoPromedioMin: Number(avgTime.toFixed(1)),
           puntajeSla: calcularPuntajeSLA(slaPct),
           puntajeTiempo: calcularPuntajeTiempo(avgTime),
-          grupoMoneda: grupo, // Campo clave para el filtrado visual
+          grupoMoneda: grupo,
           estado: "Pendiente",
           completoTurno: true,
           tuvoInconveniente: false,
