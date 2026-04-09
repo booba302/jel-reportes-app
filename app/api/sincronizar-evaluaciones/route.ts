@@ -71,7 +71,6 @@ export async function POST(request: Request) {
         monedaPrincipal: string;
       }
     > = {};
-
     snapOps.forEach((docItem) => {
       const data = docItem.data();
       const op = data.Operador || "Desconocido";

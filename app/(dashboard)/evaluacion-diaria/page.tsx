@@ -107,9 +107,9 @@ export default function EvaluacionDesempenoPage() {
 
         // 🔴 FILTRADO POR ROL (Ajustado con .includes para evitar errores de BD)
         if (!isAdmin) {
-          if (userRole.includes("inter") && item.grupoMoneda === "nacional")
+          if (userRole.includes("agente_retiros_internacional") && item.grupoMoneda === "nacional")
             return;
-          if (userRole.includes("nacional") && item.grupoMoneda === "inter")
+          if (userRole.includes("agente_retiros_nacional") && item.grupoMoneda === "inter")
             return;
         }
 
