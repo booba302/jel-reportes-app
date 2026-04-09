@@ -936,15 +936,10 @@ function ReporteDiarioContent() {
             <div
               className={cn(
                 "grid gap-6",
-                isExportingPDF ? "grid-cols-3" : "grid-cols-1 lg:grid-cols-3",
+                isExportingPDF ? "grid-cols-2" : "grid-cols-1 lg:grid-cols-2",
               )}
             >
-              <Card
-                className={cn(
-                  "shadow-sm border-slate-200 bg-white flex flex-col h-full",
-                  isExportingPDF ? "col-span-2" : "lg:col-span-2",
-                )}
-              >
+              <Card className="shadow-sm border-slate-200 bg-white">
                 <CardHeader className="bg-slate-50/50 border-b pb-4 flex flex-row items-center justify-between">
                   <CardTitle className="text-base font-semibold text-slate-700">
                     Detalle de Operaciones
@@ -983,7 +978,10 @@ function ReporteDiarioContent() {
                       </thead>
                       <tbody>
                         {processedData.paginatedOps.map((op, i) => (
-                          <tr key={i} className="border-b hover:bg-slate-50/50">
+                          <tr
+                            key={i}
+                            className="border-b hover:bg-slate-50/50 h-13"
+                          >
                             <td className="px-4 py-2 text-slate-600">
                               {op.hora}
                             </td>
@@ -1043,7 +1041,7 @@ function ReporteDiarioContent() {
                 </CardContent>
               </Card>
 
-              <Card className="shadow-sm border-rose-200 bg-white flex flex-col h-full">
+              <Card className="shadow-sm border-slate-200 bg-white">
                 <CardHeader className="bg-rose-50/50 border-b border-rose-100 pb-4 flex flex-row items-center justify-between">
                   <CardTitle className="text-base font-semibold text-rose-800 flex items-center">
                     <AlertTriangle className="w-5 h-5 mr-2 text-rose-600" />{" "}
@@ -1067,6 +1065,7 @@ function ReporteDiarioContent() {
                       <thead className="text-xs text-slate-500 uppercase bg-white border-b">
                         <tr>
                           <th className="px-4 py-3 font-semibold">Hora</th>
+                          <th className="px-4 py-3 font-semibold">Usuario</th>
                           <th className="px-4 py-3 font-semibold">Operador</th>
                           <th className="px-4 py-3 font-semibold text-center">
                             Mins
@@ -1081,10 +1080,13 @@ function ReporteDiarioContent() {
                           processedData.paginatedWorstOps.map((op, i) => (
                             <tr
                               key={i}
-                              className="border-b hover:bg-rose-50/50"
+                              className="border-b hover:bg-rose-50/50 h-13"
                             >
                               <td className="px-4 py-2 text-slate-600">
                                 {op.hora}
+                              </td>
+                              <td className="px-4 py-2 text-slate-600">
+                                {op.alias}
                               </td>
                               <td
                                 className="px-4 py-2 font-medium text-slate-800 truncate max-w-[100px]"
