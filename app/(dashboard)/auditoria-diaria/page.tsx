@@ -43,6 +43,7 @@ import {
   X,
   Save,
   FileText,
+  Search,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -107,6 +108,10 @@ function ReporteDiarioContent() {
   const [currentWorstPage, setCurrentWorstPage] = useState(1);
   const [currentFastPage, setCurrentFastPage] = useState(1);
   const itemsPerPage = 10;
+
+  // Estados para los buscadores independientes
+  const [searchOps, setSearchOps] = useState("");
+  const [searchWorst, setSearchWorst] = useState("");
 
   // Estados para el Modal de Comentarios de Brecha
   const [commentModalOpen, setCommentModalOpen] = useState(false);
@@ -320,22 +325,49 @@ function ReporteDiarioContent() {
       Incumplen: agtPerfMap[agt].noCumple,
     }));
 
-    const totalPages = Math.ceil(filteredOps.length / itemsPerPage);
-    const paginatedOps = filteredOps.slice(
+    // ... (El cálculo de metrics, hourlyData y agentChartData sigue exactamente igual)
+
+    // 🔴 1. BUSCADOR LOCAL: Detalle de Operaciones
+    const searchOpsLower = searchOps.toLowerCase();
+    const opsToPaginate =
+      searchOps.trim() === ""
+        ? filteredOps
+        : filteredOps.filter(
+            (op) =>
+              op.alias.toLowerCase().includes(searchOpsLower) ||
+              op.operador.toLowerCase().includes(searchOpsLower) ||
+              op.hora.includes(searchOpsLower),
+          );
+
+    const totalPages = Math.ceil(opsToPaginate.length / itemsPerPage);
+    const paginatedOps = opsToPaginate.slice(
       (currentPage - 1) * itemsPerPage,
       currentPage * itemsPerPage,
     );
 
+    // 🔴 2. BUSCADOR LOCAL: Brechas Críticas
     const allWorstOps = filteredOps
       .filter((op) => !op.cumple)
       .sort((a, b) => b.tiempo - a.tiempo);
 
-    const totalWorstPages = Math.ceil(allWorstOps.length / itemsPerPage);
-    const paginatedWorstOps = allWorstOps.slice(
+    const searchWorstLower = searchWorst.toLowerCase();
+    const worstToPaginate =
+      searchWorst.trim() === ""
+        ? allWorstOps
+        : allWorstOps.filter(
+            (op) =>
+              op.alias.toLowerCase().includes(searchWorstLower) ||
+              op.operador.toLowerCase().includes(searchWorstLower) ||
+              op.hora.includes(searchWorstLower),
+          );
+
+    const totalWorstPages = Math.ceil(worstToPaginate.length / itemsPerPage);
+    const paginatedWorstOps = worstToPaginate.slice(
       (currentWorstPage - 1) * itemsPerPage,
       currentWorstPage * itemsPerPage,
     );
 
+    // (superFastOps se queda igual)
     const superFastOps = filteredOps
       .filter((op) => op.tiempo < 1 && op.operador !== "Autopago")
       .sort((a, b) => a.tiempo - b.tiempo);
@@ -348,6 +380,7 @@ function ReporteDiarioContent() {
 
     return {
       filteredOps,
+      opsListLength: opsToPaginate.length, // <-- Exportamos el total filtrado para el contador
       metrics,
       hourlyData,
       agentChartData,
@@ -355,7 +388,7 @@ function ReporteDiarioContent() {
       paginatedOps,
       totalWorstPages,
       paginatedWorstOps,
-      allWorstOpsLength: allWorstOps.length,
+      allWorstOpsLength: worstToPaginate.length, // <-- Exportamos el total filtrado para el contador
       superFastOps,
       totalFastPages,
       paginatedFastOps,
@@ -366,6 +399,8 @@ function ReporteDiarioContent() {
     currentPage,
     currentWorstPage,
     currentFastPage,
+    searchOps,
+    searchWorst,
   ]);
 
   const handleExportExcel = () => {
@@ -940,13 +975,31 @@ function ReporteDiarioContent() {
               )}
             >
               <Card className="shadow-sm border-slate-200 bg-white">
-                <CardHeader className="bg-slate-50/50 border-b pb-4 flex flex-row items-center justify-between">
-                  <CardTitle className="text-base font-semibold text-slate-700">
-                    Detalle de Operaciones
-                  </CardTitle>
-                  <span className="text-sm text-slate-500 font-normal">
-                    Total: {processedData.filteredOps.length}
-                  </span>
+                <CardHeader className="bg-slate-50/50 border-b pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base font-semibold text-slate-700">
+                      Detalle de Operaciones
+                    </CardTitle>
+                    <span className="text-sm text-slate-500 font-normal bg-white px-2 py-0.5 rounded-full border border-slate-200">
+                      Total: {processedData.opsListLength}
+                    </span>
+                  </div>
+
+                  {!isExportingPDF && (
+                    <div className="relative flex items-center">
+                      <Search className="absolute left-2.5 w-4 h-4 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Buscar jugador..."
+                        value={searchOps}
+                        onChange={(e) => {
+                          setSearchOps(e.target.value);
+                          setCurrentPage(1); // Regresa a pág 1 al buscar
+                        }}
+                        className="pl-8 pr-3 h-8 border border-slate-200 rounded-md text-sm focus:ring-2 focus:ring-primary focus:border-primary outline-none w-full sm:w-[200px] bg-white transition-all"
+                      />
+                    </div>
+                  )}
                 </CardHeader>
                 <CardContent className="p-0 flex-1 flex flex-col justify-between">
                   <div
@@ -963,7 +1016,7 @@ function ReporteDiarioContent() {
                             Hora
                           </th>
                           <th className="px-4 py-3 font-semibold w-[25%]">
-                            Jugador
+                            Usuario
                           </th>
                           <th className="px-4 py-3 font-semibold text-center w-[20%]">
                             Nivel
@@ -1042,15 +1095,33 @@ function ReporteDiarioContent() {
               </Card>
 
               <Card className="shadow-sm border-slate-200 bg-white">
-                <CardHeader className="bg-rose-50/50 border-b border-rose-100 pb-4 flex flex-row items-center justify-between">
-                  <CardTitle className="text-base font-semibold text-rose-800 flex items-center">
-                    <AlertTriangle className="w-5 h-5 mr-2 text-rose-600" />{" "}
-                    Brechas Críticas
-                  </CardTitle>
-                  {processedData.allWorstOpsLength > 0 && (
-                    <span className="text-sm font-bold text-rose-600 bg-white px-2 py-0.5 rounded-full border border-rose-200">
-                      {processedData.allWorstOpsLength} fallos
-                    </span>
+                <CardHeader className="bg-rose-50/50 border-b border-rose-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base font-semibold text-rose-800 flex items-center">
+                      <AlertTriangle className="w-5 h-5 mr-2 text-rose-600" />{" "}
+                      Brechas Críticas
+                    </CardTitle>
+                    {processedData.allWorstOpsLength > 0 && (
+                      <span className="text-sm font-bold text-rose-600 bg-white px-2 py-0.5 rounded-full border border-rose-200">
+                        {processedData.allWorstOpsLength} fallos
+                      </span>
+                    )}
+                  </div>
+
+                  {!isExportingPDF && (
+                    <div className="relative flex items-center">
+                      <Search className="absolute left-2.5 w-4 h-4 text-rose-400" />
+                      <input
+                        type="text"
+                        placeholder="Buscar jugador..."
+                        value={searchWorst}
+                        onChange={(e) => {
+                          setSearchWorst(e.target.value);
+                          setCurrentWorstPage(1); // Regresa a pág 1 al buscar
+                        }}
+                        className="pl-8 pr-3 h-8 border border-rose-200 rounded-md text-sm focus:ring-2 focus:ring-rose-400 focus:border-rose-400 outline-none w-full sm:w-[180px] bg-white placeholder:text-rose-300 transition-all"
+                      />
+                    </div>
                   )}
                 </CardHeader>
                 <CardContent className="p-0 flex-1 flex flex-col justify-between">
@@ -1214,7 +1285,7 @@ function ReporteDiarioContent() {
                       <thead className="text-xs text-slate-500 uppercase bg-white border-b">
                         <tr>
                           <th className="px-4 py-3 font-semibold">Hora</th>
-                          <th className="px-4 py-3 font-semibold">Jugador</th>
+                          <th className="px-4 py-3 font-semibold">Usuario</th>
                           <th className="px-4 py-3 font-semibold text-center">
                             Nivel
                           </th>
