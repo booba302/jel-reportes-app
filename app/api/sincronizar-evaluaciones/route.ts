@@ -62,7 +62,9 @@ export async function POST(request: Request) {
       where("Fecha del reporte", "<=", end),
     );
 
+    console.log(qOps);
     const snapOps = await getDocs(qOps);
+    console.log(snapOps);
 
     // 🔴 NUEVA ESTRUCTURA: Separamos lo Total de lo Evaluable
     const agtMap: Record<
@@ -111,6 +113,8 @@ export async function POST(request: Request) {
       }
     });
 
+    console.log(agtMap);
+
     const batch = writeBatch(db);
     let procesados = 0;
 
@@ -133,6 +137,7 @@ export async function POST(request: Request) {
       const docRef = doc(db, "evaluaciones_desempeno", idUnico);
 
       const grupo = metrics.monedaPrincipal === "VES" ? "nacional" : "inter";
+      console.log(grupo);
 
       batch.set(
         docRef,
@@ -159,12 +164,14 @@ export async function POST(request: Request) {
       procesados++;
     }
 
-    await batch.commit();
+    const ap = await batch.commit();
+    console.log(ap);
     return NextResponse.json({
       success: true,
       mensaje: `Sincronizados ${procesados} operadores.`,
     });
   } catch (error) {
+    console.log(error)
     return NextResponse.json(
       { success: false, error: "Error interno" },
       { status: 500 },

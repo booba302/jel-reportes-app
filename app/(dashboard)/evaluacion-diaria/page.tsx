@@ -11,6 +11,7 @@ import {
   getDocs,
   doc,
   updateDoc,
+  writeBatch, // <-- NUEVO IMPORT AGREGADO
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/app/context/AuthContext";
@@ -21,7 +22,6 @@ import {
   RefreshCw,
   CheckCircle2,
   MessageSquare,
-  AlertCircle,
   Save,
   X,
   Globe,
@@ -34,13 +34,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -68,6 +62,27 @@ interface Evaluacion {
   estado: "Pendiente" | "Confirmado";
   grupoMoneda?: string;
 }
+
+// 🔴 NUEVAS FUNCIONES Y CONSTANTES PARA LA SINCRONIZACIÓN
+const JEFES_EXCLUIDOS = ["Franklin Sanchez", "Marvin", "Evelyn"];
+
+const calcularPuntajeSLA = (porcentaje: number) => {
+  if (porcentaje >= 100) return 10;
+  if (porcentaje <= 0) return 0;
+  return Number((porcentaje / 10).toFixed(1));
+};
+
+const calcularPuntajeTiempo = (minutos: number) => {
+  if (minutos >= 0 && minutos <= 10) return 10;
+  if (minutos > 10 && minutos <= 15) return 9;
+  if (minutos > 15 && minutos <= 20) return 8;
+  if (minutos > 20 && minutos <= 25) return 7;
+  if (minutos > 25 && minutos <= 30) return 6;
+  if (minutos > 30 && minutos <= 35) return 5;
+  if (minutos > 35 && minutos <= 40) return 4;
+  if (minutos > 40 && minutos <= 45) return 3;
+  return 0;
+};
 
 export default function EvaluacionDesempenoPage() {
   const { userData } = useAuth();
@@ -105,11 +120,16 @@ export default function EvaluacionDesempenoPage() {
       snapshot.forEach((docSnap) => {
         const item = docSnap.data() as Evaluacion;
 
-        // 🔴 FILTRADO POR ROL (Ajustado con .includes para evitar errores de BD)
         if (!isAdmin) {
-          if (userRole.includes("agente_retiros_internacional") && item.grupoMoneda === "nacional")
+          if (
+            userRole.includes("agente_retiros_internacional") &&
+            item.grupoMoneda === "nacional"
+          )
             return;
-          if (userRole.includes("agente_retiros_nacional") && item.grupoMoneda === "inter")
+          if (
+            userRole.includes("agente_retiros_nacional") &&
+            item.grupoMoneda === "inter"
+          )
             return;
         }
 
@@ -129,27 +149,136 @@ export default function EvaluacionDesempenoPage() {
     fetchEvaluaciones();
   }, [date, userRole]);
 
+  // 🔴 NUEVA LÓGICA DE SINCRONIZACIÓN DIRECTA
   const handleSincronizar = async () => {
     if (!date) return;
     setIsSyncing(true);
+    toast.info("Iniciando sincronización de operaciones...");
 
     try {
-      const dateDB = format(date, "yyyy-MM-dd");
-      const response = await fetch("/api/sincronizar-evaluaciones", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fecha: dateDB, rol: userRole }),
+      const fechaSeleccionada = format(date, "yyyy-MM-dd");
+      let monedasPermitidas: string[] = [];
+
+      if (userRole.includes("agente_retiros_internacional")) {
+        monedasPermitidas = ["CLP", "PEN", "USD", "MXN"];
+      } else if (userRole.includes("agente_retiros_nacional")) {
+        monedasPermitidas = ["VES"];
+      } else {
+        monedasPermitidas = ["CLP", "PEN", "USD", "MXN", "VES"];
+      }
+
+      const start = `${fechaSeleccionada}T00:00:00.000Z`;
+      const end = `${fechaSeleccionada}T23:59:59.999Z`;
+
+      const qOps = query(
+        collection(db, "operaciones_retiros"),
+        where("Fecha del reporte", ">=", start),
+        where("Fecha del reporte", "<=", end),
+      );
+
+      const snapOps = await getDocs(qOps);
+
+      const agtMap: Record<
+        string,
+        {
+          totalGeneral: number;
+          totalEvaluable: number;
+          cumpleEvaluable: number;
+          tiempoEvaluable: number;
+          monedaPrincipal: string;
+        }
+      > = {};
+
+      snapOps.forEach((docItem) => {
+        const data = docItem.data();
+        const op = data.Operador || "Desconocido";
+        const moneda = data.Moneda || "";
+
+        if (JEFES_EXCLUIDOS.includes(op)) return;
+        if (op.toLowerCase().includes("autopago")) return;
+        if (!monedasPermitidas.includes(moneda)) return;
+
+        if (!agtMap[op]) {
+          agtMap[op] = {
+            totalGeneral: 0,
+            totalEvaluable: 0,
+            cumpleEvaluable: 0,
+            tiempoEvaluable: 0,
+            monedaPrincipal: moneda,
+          };
+        }
+
+        agtMap[op].totalGeneral++;
+
+        const isExonerated =
+          data.comentarioBrecha && data.comentarioBrecha.trim() !== "";
+
+        if (!isExonerated) {
+          agtMap[op].totalEvaluable++;
+          agtMap[op].tiempoEvaluable += Number(data.Tiempo) || 0;
+          if (data.Cumple === true) agtMap[op].cumpleEvaluable++;
+        }
       });
 
-      const result = await response.json();
-      if (result.success) {
-        toast.success("Día Sincronizado");
-        await fetchEvaluaciones();
+      const batch = writeBatch(db);
+      let procesados = 0;
+
+      for (const op of Object.keys(agtMap)) {
+        const metrics = agtMap[op];
+
+        const slaPct =
+          metrics.totalEvaluable > 0
+            ? (metrics.cumpleEvaluable / metrics.totalEvaluable) * 100
+            : 100;
+
+        const avgTime =
+          metrics.totalEvaluable > 0
+            ? metrics.tiempoEvaluable / metrics.totalEvaluable
+            : 0;
+
+        const idUnico = `${fechaSeleccionada}_${op.replace(/\s+/g, "_")}`;
+        const docRef = doc(db, "evaluaciones_desempeno", idUnico);
+        const grupo = metrics.monedaPrincipal === "VES" ? "nacional" : "inter";
+
+        batch.set(
+          docRef,
+          {
+            id: idUnico,
+            fecha: `${fechaSeleccionada}T00:00:00.000Z`,
+            operador: op,
+            totalRetiros: metrics.totalGeneral,
+            cumplimientoSlaPct: Number(slaPct.toFixed(1)),
+            tiempoPromedioMin: Number(avgTime.toFixed(1)),
+            puntajeSla: calcularPuntajeSLA(slaPct),
+            puntajeTiempo: calcularPuntajeTiempo(avgTime),
+            grupoMoneda: grupo,
+            estado: "Pendiente",
+            completoTurno: true,
+            tuvoInconveniente: false,
+            comentarioInconveniente: "",
+            puntualidad: 10,
+            proactividad: 10,
+          },
+          { merge: true },
+        );
+
+        procesados++;
+      }
+
+      if (procesados === 0) {
+        toast.info(
+          "No se encontraron operaciones de tu grupo para esta fecha.",
+        );
       } else {
-        toast.warning("Aviso", { description: result.error });
+        await batch.commit();
+        toast.success(`¡Sincronización exitosa!`, {
+          description: `Se procesaron y actualizaron ${procesados} operadores.`,
+        });
+        await fetchEvaluaciones();
       }
     } catch (error) {
-      toast.error("Error al intentar sincronizar.");
+      console.error(error);
+      toast.error("Error al sincronizar datos con Firebase.");
     } finally {
       setIsSyncing(false);
     }
@@ -282,8 +411,6 @@ export default function EvaluacionDesempenoPage() {
                 <TableHead className="text-center w-[200px]">
                   Puntajes Automáticos
                 </TableHead>
-
-                {/* 🔴 NUEVO ENCABEZADO CON SUB-ETIQUETAS */}
                 <TableHead className="text-center w-[220px]">
                   <div>Puntajes Cualitativos</div>
                   <div className="flex justify-center gap-2 mt-1 text-[10px] text-slate-500 font-medium uppercase">
@@ -291,7 +418,6 @@ export default function EvaluacionDesempenoPage() {
                     <span className="w-16 text-center">Proacti.</span>
                   </div>
                 </TableHead>
-
                 <TableHead className="text-center w-[200px]">
                   Control de Turno
                 </TableHead>
@@ -346,7 +472,6 @@ export default function EvaluacionDesempenoPage() {
                         </div>
                       </TableCell>
 
-                      {/* 🔴 INPUTS ALINEADOS CON EL ENCABEZADO */}
                       <TableCell className="text-center">
                         <div className="flex items-center justify-center gap-2">
                           <input
