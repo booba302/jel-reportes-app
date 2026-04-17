@@ -29,11 +29,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const router = useRouter();
   const pathname = usePathname();
 
+  // 🔴 NUEVO: Definimos qué rutas son públicas para no bloquearlas
+  const isPublicRoute =
+    pathname === "/login" || pathname.startsWith("/evaluacion-operador");
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser);
-        // Buscamos el rol del usuario en Firestore
         try {
           const userDoc = await getDoc(doc(db, "usuarios", firebaseUser.uid));
           if (userDoc.exists()) {
@@ -52,10 +55,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => unsubscribe();
   }, []);
 
-  // Protección de rutas: Si no está logueado y no está en /login, lo expulsamos
+  // Protección de rutas
   useEffect(() => {
     if (!loading) {
-      if (!user && pathname !== "/login") {
+      // 🔴 MODIFICADO: Si no está logueado y NO es una ruta pública, lo expulsamos
+      if (!user && !isPublicRoute) {
         router.push("/login");
       } else if (user) {
         // Si tiene la bandera encendida y no está en la página de cambio, lo obligamos a ir
@@ -74,7 +78,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         }
       }
     }
-  }, [user, loading, pathname, router, userData]);
+  }, [user, loading, pathname, router, userData, isPublicRoute]);
 
   const logout = async () => {
     await signOut(auth);
@@ -89,9 +93,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     );
   }
 
-  // Si no hay usuario y estamos en login, renderizamos la página (no el layout completo)
-  if (!user && pathname === "/login") {
-    return <>{children}</>;
+  // 🔴 MODIFICADO: Si no hay usuario pero estamos en una ruta pública, renderizamos la vista (para que no salga pantalla en blanco)
+  if (!user && isPublicRoute) {
+    return (
+      <AuthContext.Provider value={{ user, userData, loading, logout }}>
+        {children}
+      </AuthContext.Provider>
+    );
   }
 
   // Si hay usuario, renderizamos la app normalmente

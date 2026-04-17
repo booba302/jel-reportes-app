@@ -32,6 +32,7 @@ import {
   Download,
   Printer,
   Award,
+  Link as LinkIcon,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -419,6 +420,43 @@ export default function CierreMensualPage() {
     xlsx.writeFile(wb, `Cierre_Mensual_${mesActual}.xlsx`);
   };
 
+  const handleGenerarEnlace = async (operador: string, mes: string) => {
+    try {
+      // 1. Buscamos si ya le habíamos generado un enlace a este operador en este mes
+      const q = query(
+        collection(db, "enlaces_expedientes"),
+        where("operador", "==", operador),
+        where("mes", "==", mes),
+      );
+      const snap = await getDocs(q);
+      let linkId = "";
+
+      if (!snap.empty) {
+        linkId = snap.docs[0].id; // Ya existe, usamos el mismo
+      } else {
+        // 2. No existe, creamos un documento nuevo (Firebase genera un ID único automático)
+        const newRef = doc(collection(db, "enlaces_expedientes"));
+        await setDoc(newRef, {
+          operador,
+          mes,
+          creadoEl: new Date().toISOString(),
+          creadoPor: userData?.nombre || "Admin",
+        });
+        linkId = newRef.id;
+      }
+
+      // 3. Copiamos al portapapeles
+      const url = `${window.location.origin}/evaluacion-operador/${linkId}`;
+      await navigator.clipboard.writeText(url);
+
+      toast.success("Enlace copiado", {
+        description: `Se copió el enlace de ${operador} al portapapeles.`,
+      });
+    } catch (error) {
+      toast.error("Error al generar el enlace.");
+    }
+  };
+
   return (
     <div
       id="cierre-mensual-global"
@@ -778,6 +816,7 @@ export default function CierreMensualPage() {
                           <th className="px-4 py-4 font-semibold text-center border-l bg-slate-50 print:bg-transparent print:px-2 print:py-2">
                             Nota Definitiva
                           </th>
+                          <th className="print:hidden px-4 py-4 font-semibold text-center border-l bg-slate-50 print:bg-transparent print:px-2 print:py-2">Enlace</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -836,6 +875,19 @@ export default function CierreMensualPage() {
                               >
                                 {rep.notaFinalPromedio.toFixed(1)}
                               </div>
+                            </td>
+                            <td className="px-4 py-4 text-center border-l bg-slate-50/50 print:bg-transparent print:border-slate-300 print:px-2 print:py-2 print:hidden">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation(); // Evita que se abra la vista normal de admin al hacer clic
+                                  handleGenerarEnlace(rep.operador, mesActual);
+                                }}
+                                className="border-blue-200 text-blue-600 hover:bg-blue-50"
+                              >
+                                <LinkIcon className="w-4 h-4" />
+                              </Button>
                             </td>
                           </tr>
                         ))}
