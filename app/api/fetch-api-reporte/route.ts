@@ -1,7 +1,5 @@
 // src/app/api/fetch-api-reporte/route.ts
 import { NextResponse } from "next/server";
-import { writeBatch, doc, collection } from "firebase/firestore";
-import { db } from "@/lib/firebase";
 
 // 🔴 CONFIGURACIÓN DE ZONA HORARIA
 const HORAS_DIFERENCIA = 3;
@@ -20,7 +18,6 @@ function ajustarFechaUTCaLocal(fechaString: string) {
   return `${y}-${m}-${d} ${h}:${min}:${s}`;
 }
 
-// 🔴 DICCIONARIO DE IDs DE OPERADORES
 const MAPA_OPERADORES: Record<number | string, string> = {
   1000010: "rafael.benitez",
   1000035: "angel.aleman",
@@ -62,8 +59,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const token =
-      process.env.CALIMACO_TOKEN;
+    const token = process.env.CALIMACO_TOKEN;
 
     const fechaObj = new Date(`${fecha}T00:00:00Z`);
     const nextDayObj = new Date(fechaObj);
@@ -124,11 +120,8 @@ export async function POST(request: Request) {
     const fechaReporte = `${fecha}T00:00:00.000Z`;
     const todasLasOperacionesNuevas = [];
 
-    // 4. Transformar los datos crudos del API
     for (const item of data) {
       if (item.currency !== currency) continue;
-
-      // 🔴 Actualizado a los nuevos nombres de campo del JSON (updated_date)
       if (!item.operation_date || !item.updated_date) continue;
 
       const operationDateLocal = ajustarFechaUTCaLocal(item.operation_date);
@@ -143,22 +136,18 @@ export async function POST(request: Request) {
       const minutos = diferenciaMs / (1000 * 60);
       const tiempo = Number(minutos.toFixed(2));
 
-      // LÓGICA DE SLA ESTANDARIZADA
       const limiteSLA = 25;
       const cumple = tiempo <= limiteSLA;
 
-      // 🔴 TRADUCCIÓN Y FORMATEO DEL ID A NOMBRE
       const logUserId = item.log_user;
       let logUserCrudo = "Autopago";
 
       if (logUserId) {
-        // Busca en el diccionario. Si no existe, guarda el ID numérico
         logUserCrudo = MAPA_OPERADORES[logUserId] || String(logUserId);
       }
 
       let operadorFormateado = "Autopago";
       if (logUserCrudo !== "Autopago") {
-        // Transforma "juan.salcedo" en "Juan Salcedo"
         operadorFormateado = logUserCrudo
           .split(".")
           .map(
@@ -168,7 +157,6 @@ export async function POST(request: Request) {
           .join(" ");
       }
 
-      // CREACIÓN DEL ID DETERMINISTA
       const timestampLimpio = operationDateLocal.replace(/[^0-9]/g, "");
       const idUnico = `${currency}_${item.user}_${timestampLimpio}`;
 
@@ -179,7 +167,7 @@ export async function POST(request: Request) {
           Jugador: item.user,
           Alias: item.alias || "",
           Cantidad: item.amount || 0,
-          Nivel: item.level || "", // Actualizado al campo 'level' del nuevo JSON
+          Nivel: item.level || "",
           "Update date": processedDateLocal,
           Tiempo: tiempo,
           Cumple: cumple,
@@ -194,27 +182,10 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: true,
         message: `No se encontraron operaciones para ${currency} en esta fecha.`,
+        operaciones: [], // 🔴 Devolvemos array vacío
       });
     }
 
-    const operacionesRef = collection(db, "operaciones_retiros");
-
-    // 5. GUARDADO MASIVO (BATCH) CON MERGE
-    const chunks = [];
-    for (let i = 0; i < todasLasOperacionesNuevas.length; i += 500) {
-      chunks.push(todasLasOperacionesNuevas.slice(i, i + 500));
-    }
-
-    for (const chunk of chunks) {
-      const batch = writeBatch(db);
-      chunk.forEach((item) => {
-        const docRef = doc(operacionesRef, item.idUnico);
-        batch.set(docRef, item.datos, { merge: true });
-      });
-      await batch.commit();
-    }
-
-    // 6. Guardar el Historial de Reportes
     const [year, month, day] = fecha.split("-");
     const historialId = `${currency}_${year}-${month}-${day}`;
 
@@ -227,15 +198,13 @@ export async function POST(request: Request) {
       totalRegistros: todasLasOperacionesNuevas.length,
     };
 
-    const batchHistorial = writeBatch(db);
-    const refHistorial = doc(db, "historial_reportes", historialId);
-    batchHistorial.set(refHistorial, historialData, { merge: true });
-    await batchHistorial.commit();
-
+    // 🔴 EN LUGAR DE GUARDAR, DEVOLVEMOS LA DATA AL FRONTEND
     return NextResponse.json({
       success: true,
-      message: `Extracción completada. Se procesaron y guardaron ${todasLasOperacionesNuevas.length} operaciones correctas.`,
+      message: `Extracción completada. Listo para guardar ${todasLasOperacionesNuevas.length} operaciones.`,
       monedaGuardada: currency,
+      operaciones: todasLasOperacionesNuevas,
+      historial: historialData,
     });
   } catch (error) {
     console.error("Error en proxy de reportes:", error);

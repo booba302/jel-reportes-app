@@ -19,6 +19,10 @@ import {
 import { useCurrency } from "@/app/context/CurrencyContext";
 import { useAuth } from "@/app/context/AuthContext";
 
+// 🔴 NUEVAS IMPORTACIONES DE FIREBASE
+import { writeBatch, doc, collection } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+
 import { cn } from "@/lib/utils";
 import {
   Card,
@@ -90,14 +94,51 @@ export default function CargarArchivosPage() {
       const json = await response.json();
 
       if (json.success) {
-        toast.success("Completado", { description: json.message });
+        if (!json.operaciones || json.operaciones.length === 0) {
+          toast.info(json.message);
+          setIsFetchingApi(false);
+          return;
+        }
+
+        toast.info("Descarga completa. Guardando en Base de Datos...");
+
+        // 🔴 GUARDADO EN FIREBASE DESDE EL FRONTEND
+        const operacionesRef = collection(db, "operaciones_retiros");
+        const operaciones = json.operaciones;
+
+        // Guardar en lotes de 500 (Límite de Firebase)
+        const chunks = [];
+        for (let i = 0; i < operaciones.length; i += 500) {
+          chunks.push(operaciones.slice(i, i + 500));
+        }
+
+        for (const chunk of chunks) {
+          const batch = writeBatch(db);
+          chunk.forEach((item: any) => {
+            const docRef = doc(operacionesRef, item.idUnico);
+            batch.set(docRef, item.datos, { merge: true });
+          });
+          await batch.commit();
+        }
+
+        // Guardar el historial de reporte
+        if (json.historial) {
+          const batchHistorial = writeBatch(db);
+          const refHistorial = doc(db, "historial_reportes", json.historial.id);
+          batchHistorial.set(refHistorial, json.historial, { merge: true });
+          await batchHistorial.commit();
+        }
+
+        toast.success("¡Éxito!", {
+          description: `Se guardaron ${operaciones.length} operaciones.`,
+        });
       } else {
         toast.error("Error", {
           description: json.error || "Fallo al conectar con el API",
         });
       }
     } catch (error) {
-      toast.error("Error de red crítico al ejecutar la petición");
+      toast.error("Error de red crítico al ejecutar la petición o al guardar");
     } finally {
       setIsFetchingApi(false);
     }
@@ -195,7 +236,6 @@ export default function CargarArchivosPage() {
     }
   };
 
-  // Variable para determinar si el día seleccionado es HOY
   const isTodaySelected = apiDate
     ? format(apiDate, "yyyy-MM-dd") === format(new Date(), "yyyy-MM-dd")
     : false;
