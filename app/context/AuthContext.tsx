@@ -1,4 +1,3 @@
-// src/context/AuthContext.tsx
 "use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react";
@@ -29,7 +28,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const router = useRouter();
   const pathname = usePathname();
 
-  // 🔴 NUEVO: Definimos qué rutas son públicas para no bloquearlas
   const isPublicRoute =
     pathname === "/login" || pathname.startsWith("/evaluacion-operador");
 
@@ -58,7 +56,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // Protección de rutas
   useEffect(() => {
     if (!loading) {
-      // 🔴 MODIFICADO: Si no está logueado y NO es una ruta pública, lo expulsamos
       if (!user && !isPublicRoute) {
         router.push("/login");
       } else if (user) {
@@ -93,7 +90,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     );
   }
 
-  // 🔴 MODIFICADO: Si no hay usuario pero estamos en una ruta pública, renderizamos la vista (para que no salga pantalla en blanco)
   if (!user && isPublicRoute) {
     return (
       <AuthContext.Provider value={{ user, userData, loading, logout }}>

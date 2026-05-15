@@ -1,4 +1,3 @@
-// src/app/login/page.tsx
 "use client";
 
 import { useState } from "react";
@@ -51,7 +50,6 @@ export default function LoginPage() {
 
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-8 relative z-10">
         <div className="text-center mb-8">
-          {/* 🔴 ESPACIO PARA EL LOGO DE LA EMPRESA (CON FONDO OSCURO) */}
           <div className="mx-auto flex items-center justify-center h-20 w-fit min-w-[140px] bg-slate-900 p-4 rounded-xl shadow-md mb-5 border border-slate-700">
             <img
               src="/logo-empresa.png"
@@ -69,7 +67,6 @@ export default function LoginPage() {
             />
           </div>
 
-          {/* 🔴 NUEVO NOMBRE DE LA APLICACIÓN */}
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-800">
             Payout<span className="text-primary">Metrics</span>
           </h1>

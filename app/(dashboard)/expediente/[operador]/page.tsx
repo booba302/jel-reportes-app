@@ -1,4 +1,3 @@
-// src/app/(dashboard)/expediente/[operador]/page.tsx
 "use client";
 
 import React, { useState, useEffect } from "react";

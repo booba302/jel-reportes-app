@@ -1,4 +1,3 @@
-// src/app/api/cerrar-mes/route.ts
 import { NextResponse } from "next/server";
 import {
   collection,

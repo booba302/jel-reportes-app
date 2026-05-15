@@ -1,4 +1,3 @@
-// src/hooks/useIdleTimeout.ts
 import { useEffect, useRef } from "react";
 
 export const useIdleTimeout = (

@@ -1,4 +1,3 @@
-// src/app/(dashboard)/cierre-mensual/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -18,7 +17,8 @@ import * as xlsx from "xlsx";
 import { toPng } from "html-to-image";
 import { jsPDF } from "jspdf";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAuth } from "@/app/context/AuthContext"; // 🔴 IMPORTAMOS EL CONTEXTO
+import { useAuth } from "@/app/context/AuthContext";
+import { parseUserRole } from "@/lib/roles";
 
 import {
   Trophy,
@@ -66,18 +66,8 @@ export default function CierreMensualPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // 🔴 OBTENEMOS EL ROL DEL USUARIO
   const { userData } = useAuth();
-  const userRole = userData?.rol?.toLowerCase().trim() || "";
-  const isAdmin =
-    userRole.includes("admin") || userRole.includes("administrador");
-
-  // 🔴 CORRECCIÓN: Evaluamos "inter" ANTES que "nacional" para evitar el falso positivo
-  const isInter =
-    userRole.includes("internacional") || userRole.includes("inter");
-  const esNacional = !isInter && userRole.includes("nacional");
-
-  const grupoUsuario = isInter ? "inter" : "nacional";
+  const { isAdmin, isInter, esNacional, grupoUsuario } = parseUserRole(userData?.rol);
 
   const mesQuery = searchParams.get("mes");
   const [mesActual, setMesActual] = useState<string>(
@@ -135,7 +125,7 @@ export default function CierreMensualPage() {
     const elementId = "cierre-mensual-global";
     const nombreArchivo = `Cierre_Mensual_${mesActual}.pdf`;
 
-    setTimeout(async () => {
+    requestAnimationFrame(() => requestAnimationFrame(async () => {
       const element = document.getElementById(elementId);
       if (!element) {
         setIsExportingPDF(false);
@@ -192,7 +182,7 @@ export default function CierreMensualPage() {
         setIsExportingPDF(false);
         setExportingType(null);
       }
-    }, 800);
+    }));
   };
 
   const fetchData = async () => {
@@ -218,7 +208,6 @@ export default function CierreMensualPage() {
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
         if (!JEFES_EXCLUIDOS.includes(data.operador)) {
-          // 🔴 FILTRO 1 CORREGIDO: Separamos los datos para que cada rol vea solo lo suyo
           if (!isAdmin) {
             const isDataNacional = data.grupoMoneda === "nacional";
             // Si el usuario es nacional y la data no lo es, la ignoramos
@@ -232,7 +221,7 @@ export default function CierreMensualPage() {
       });
       setRawEvalsGuardados(diarias);
 
-      // 🔴 FILTRO 2: Buscamos el documento de cierre específico del grupo
+      // Each group's closure doc is keyed by group to avoid collisions
       const cierreDocId = isAdmin ? mesActual : `${mesActual}_${grupoUsuario}`;
       const docCierreRef = doc(db, "evaluaciones_mensuales", cierreDocId);
       const docCierreSnap = await getDoc(docCierreRef);
@@ -256,7 +245,7 @@ export default function CierreMensualPage() {
           globalSlaCumplido = 0,
           globalTiempoMins = 0;
 
-        // 🔴 FILTRO 3: Nuevo mapa para contar DÍAS y no registros individuales
+        // Count unique days, not individual records
         const diasMap: Record<string, { total: number; confirmados: number }> =
           {};
 
@@ -306,7 +295,6 @@ export default function CierreMensualPage() {
           if (!ev.completoTurno) agtMap[op].turnosIncompletos++;
         });
 
-        // 🔴 Calculamos totales de la auditoría basados en días
         const totalDiasUnicos = Object.keys(diasMap).length;
         let diasConfirmados = 0;
         let diasPendientes = 0;
@@ -379,7 +367,6 @@ export default function CierreMensualPage() {
   const handleCerrarMes = async () => {
     setIsClosing(true);
     try {
-      // 🔴 FILTRO 4: Guardamos el estado bajo el ID del grupo para no pisarse
       const cierreDocId = isAdmin ? mesActual : `${mesActual}_${grupoUsuario}`;
 
       await setDoc(doc(db, "evaluaciones_mensuales", cierreDocId), {
@@ -492,7 +479,6 @@ export default function CierreMensualPage() {
 
       <div className="flex flex-col md:flex-row justify-between md:items-end gap-4 bg-white p-5 rounded-lg border shadow-sm print:hidden">
         <div>
-          {/* 🔴 TÍTULO DINÁMICO CORREGIDO */}
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
             <Award className="w-8 h-8 text-primary" /> Cierre Mensual{" "}
             {isAdmin ? "" : isInter ? "Internacional" : "Nacional"}
