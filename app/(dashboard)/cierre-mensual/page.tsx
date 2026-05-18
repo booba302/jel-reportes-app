@@ -362,7 +362,7 @@ export default function CierreMensualPage() {
 
   useEffect(() => {
     fetchData();
-  }, [mesActual, userRole]);
+  }, [mesActual, userData?.rol]);
 
   const handleCerrarMes = async () => {
     setIsClosing(true);
