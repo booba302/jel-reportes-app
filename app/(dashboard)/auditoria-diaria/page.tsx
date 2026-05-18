@@ -1,4 +1,3 @@
-// src/app/reporte-diario/page.tsx
 "use client";
 
 import React, { useState, useEffect, Suspense, useMemo } from "react";
@@ -18,7 +17,7 @@ import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
 import * as xlsx from "xlsx";
 import { useCurrency } from "@/app/context/CurrencyContext";
-import { cn } from "@/lib/utils";
+import { cn, isExonerated } from "@/lib/utils";
 
 import { toPng } from "html-to-image";
 import { jsPDF } from "jspdf";
@@ -119,7 +118,6 @@ function ReporteDiarioContent() {
   const [commentText, setCommentText] = useState("");
   const [isSavingComment, setIsSavingComment] = useState(false);
 
-  // 🔴 Estados para la Observación General del Día
   const [dailyObservation, setDailyObservation] = useState("");
   const [isSavingObservation, setIsSavingObservation] = useState(false);
 
@@ -174,7 +172,6 @@ function ReporteDiarioContent() {
         setCurrentWorstPage(1);
         setCurrentFastPage(1);
 
-        // 🔴 2. Cargar la observación general del día
         const obsRef = doc(
           db,
           "observaciones_diarias",
@@ -223,7 +220,6 @@ function ReporteDiarioContent() {
     }
   };
 
-  // 🔴 FUNCIÓN PARA GUARDAR LA OBSERVACIÓN DEL DÍA
   const handleSaveObservation = async () => {
     setIsSavingObservation(true);
     try {
@@ -244,7 +240,8 @@ function ReporteDiarioContent() {
     }
   };
 
-  const processedData = useMemo(() => {
+  // Heavy computation: only reruns when raw data or operator filter changes.
+  const coreData = useMemo(() => {
     const filteredOps =
       selectedOperator === "Todos"
         ? rawOps
@@ -255,25 +252,23 @@ function ReporteDiarioContent() {
     const autoPct =
       totalGlobal > 0 ? ((autoCount / totalGlobal) * 100).toFixed(1) : "0.0";
 
-    const manualOps = filteredOps.filter((op) => op.operador !== "Autopago");
-
-    // 🔴 NUEVO: Filtramos solo las operaciones evaluables (sin comentario de exoneración)
-    const evaluableOps = manualOps.filter(
-      (op) => !op.comentarioBrecha || op.comentarioBrecha.trim() === "",
+    const evaluableOps = filteredOps.filter(
+      (op) =>
+        op.operador !== "Autopago" &&
+        !isExonerated(op.comentarioBrecha),
     );
 
     const totalEvaluable = evaluableOps.length;
     let manualSlaCount = 0;
     let manualTotalTime = 0;
 
-    // 🔴 NUEVO: El cálculo de SLA y Tiempo Promedio ahora usa SOLO las operaciones evaluables
     evaluableOps.forEach((op) => {
       manualTotalTime += op.tiempo;
       if (op.cumple) manualSlaCount++;
     });
 
     const metrics = {
-      totalTx: filteredOps.length, // Seguimos mostrando el volumen real total
+      totalTx: filteredOps.length,
       slaPct:
         totalEvaluable > 0
           ? ((manualSlaCount / totalEvaluable) * 100).toFixed(1)
@@ -287,25 +282,18 @@ function ReporteDiarioContent() {
 
     const hourMap: Record<string, number> = {};
     const agtPerfMap: Record<string, { cumple: number; noCumple: number }> = {};
-
     for (let i = 7; i <= 23; i++) {
       hourMap[i.toString().padStart(2, "0") + ":00"] = 0;
     }
 
     filteredOps.forEach((op) => {
-      // Flujo de trabajo por hora (Aquí dejamos todos, porque es volumen de trabajo)
       const hour = op.hora.split(":")[0] + ":00";
       if (hourMap[hour] !== undefined) hourMap[hour]++;
 
-      // 🔴 NUEVO: Gráfica de Agentes. Solo castigamos si NO hay justificación
       if (op.operador !== "Autopago") {
         if (!agtPerfMap[op.operador])
           agtPerfMap[op.operador] = { cumple: 0, noCumple: 0 };
-
-        const isExonerated =
-          op.comentarioBrecha && op.comentarioBrecha.trim() !== "";
-
-        if (!isExonerated) {
+        if (!isExonerated(op.comentarioBrecha)) {
           if (op.cumple) agtPerfMap[op.operador].cumple++;
           else agtPerfMap[op.operador].noCumple++;
         }
@@ -314,10 +302,7 @@ function ReporteDiarioContent() {
 
     const hourlyData = Object.keys(hourMap)
       .sort()
-      .map((h) => ({
-        hora: h,
-        volumen: hourMap[h],
-      }));
+      .map((h) => ({ hora: h, volumen: hourMap[h] }));
 
     const agentChartData = Object.keys(agtPerfMap).map((agt) => ({
       nombre: agt,
@@ -325,9 +310,21 @@ function ReporteDiarioContent() {
       Incumplen: agtPerfMap[agt].noCumple,
     }));
 
-    // ... (El cálculo de metrics, hourlyData y agentChartData sigue exactamente igual)
+    const allWorstOps = filteredOps
+      .filter((op) => !op.cumple)
+      .sort((a, b) => b.tiempo - a.tiempo);
 
-    // 🔴 1. BUSCADOR LOCAL: Detalle de Operaciones
+    const superFastOps = filteredOps
+      .filter((op) => op.tiempo < 1 && op.operador !== "Autopago")
+      .sort((a, b) => a.tiempo - b.tiempo);
+
+    return { filteredOps, metrics, hourlyData, agentChartData, allWorstOps, superFastOps };
+  }, [rawOps, selectedOperator]);
+
+  // Lightweight: only reruns when pagination/search changes — no metric recalculation.
+  const paginatedData = useMemo(() => {
+    const { filteredOps, allWorstOps, superFastOps } = coreData;
+
     const searchOpsLower = searchOps.toLowerCase();
     const opsToPaginate =
       searchOps.trim() === ""
@@ -344,11 +341,6 @@ function ReporteDiarioContent() {
       (currentPage - 1) * itemsPerPage,
       currentPage * itemsPerPage,
     );
-
-    // 🔴 2. BUSCADOR LOCAL: Brechas Críticas
-    const allWorstOps = filteredOps
-      .filter((op) => !op.cumple)
-      .sort((a, b) => b.tiempo - a.tiempo);
 
     const searchWorstLower = searchWorst.toLowerCase();
     const worstToPaginate =
@@ -367,11 +359,6 @@ function ReporteDiarioContent() {
       currentWorstPage * itemsPerPage,
     );
 
-    // (superFastOps se queda igual)
-    const superFastOps = filteredOps
-      .filter((op) => op.tiempo < 1 && op.operador !== "Autopago")
-      .sort((a, b) => a.tiempo - b.tiempo);
-
     const totalFastPages = Math.ceil(superFastOps.length / itemsPerPage);
     const paginatedFastOps = superFastOps.slice(
       (currentFastPage - 1) * itemsPerPage,
@@ -379,38 +366,25 @@ function ReporteDiarioContent() {
     );
 
     return {
-      filteredOps,
-      opsListLength: opsToPaginate.length, // <-- Exportamos el total filtrado para el contador
-      metrics,
-      hourlyData,
-      agentChartData,
+      opsListLength: opsToPaginate.length,
       totalPages,
       paginatedOps,
+      allWorstOpsLength: worstToPaginate.length,
       totalWorstPages,
       paginatedWorstOps,
-      allWorstOpsLength: worstToPaginate.length, // <-- Exportamos el total filtrado para el contador
-      superFastOps,
       totalFastPages,
       paginatedFastOps,
     };
-  }, [
-    rawOps,
-    selectedOperator,
-    currentPage,
-    currentWorstPage,
-    currentFastPage,
-    searchOps,
-    searchWorst,
-  ]);
+  }, [coreData, currentPage, currentWorstPage, currentFastPage, searchOps, searchWorst]);
 
   const handleExportExcel = () => {
-    const dataToExport = processedData.filteredOps.map((op) => ({
+    const dataToExport = coreData.filteredOps.map((op) => ({
       Hora: op.hora,
       Jugador: op.alias,
       "Nivel VIP": op.nivel,
       Monto: op.cantidad,
       "Tiempo (min)": op.tiempo,
-      "Estado SLA": op.cumple ? "Cumplió (<30m)" : "Incumplió (>30m)",
+      "Estado SLA": op.cumple ? "Cumplió (<25m)" : "Incumplió (>25m)",
       Operador: op.operador,
       Comentario: op.comentarioBrecha || "N/A",
     }));
@@ -419,8 +393,8 @@ function ReporteDiarioContent() {
     const wb = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(wb, ws, "Retiros");
 
-    if (processedData.superFastOps.length > 0) {
-      const fastDataExport = processedData.superFastOps.map((op) => ({
+    if (coreData.superFastOps.length > 0) {
+      const fastDataExport = coreData.superFastOps.map((op) => ({
         Hora: op.hora,
         Jugador: op.alias,
         "Nivel VIP": op.nivel,
@@ -452,7 +426,8 @@ function ReporteDiarioContent() {
       viewportMeta.setAttribute("content", "width=1200, initial-scale=1");
     }
 
-    setTimeout(async () => {
+    // Two rAF cycles ensure the viewport reflow is painted before capture.
+    requestAnimationFrame(() => requestAnimationFrame(async () => {
       const element = document.getElementById("reporte-gerencial");
       if (!element) {
         setIsExportingPDF(false);
@@ -507,7 +482,7 @@ function ReporteDiarioContent() {
         }
         setIsExportingPDF(false);
       }
-    }, 800);
+    }));
   };
 
   const fechaFormateada = selectedDate
@@ -727,7 +702,7 @@ function ReporteDiarioContent() {
                     <Activity className="w-4 h-4 text-slate-400" />
                   </div>
                   <div className="text-2xl font-bold text-slate-800 mt-2">
-                    {processedData.metrics.totalTx}
+                    {coreData.metrics.totalTx}
                   </div>
                 </CardContent>
               </Card>
@@ -740,7 +715,7 @@ function ReporteDiarioContent() {
                     <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                   </div>
                   <div className="text-2xl font-bold text-slate-800 mt-2">
-                    {processedData.metrics.slaPct}%
+                    {coreData.metrics.slaPct}%
                   </div>
                 </CardContent>
               </Card>
@@ -753,7 +728,7 @@ function ReporteDiarioContent() {
                     <Clock className="w-4 h-4 text-amber-500" />
                   </div>
                   <div className="text-2xl font-bold text-slate-800 mt-2">
-                    {processedData.metrics.avgTime}{" "}
+                    {coreData.metrics.avgTime}{" "}
                     <span className="text-base text-slate-500 font-normal">
                       min
                     </span>
@@ -769,7 +744,7 @@ function ReporteDiarioContent() {
                     <Users className="w-4 h-4 text-violet-500" />
                   </div>
                   <div className="text-2xl font-bold text-slate-800 mt-2">
-                    {processedData.metrics.autoPct}%
+                    {coreData.metrics.autoPct}%
                   </div>
                 </CardContent>
               </Card>
@@ -793,7 +768,7 @@ function ReporteDiarioContent() {
                       <AreaChart
                         width={500}
                         height={250}
-                        data={processedData.hourlyData}
+                        data={coreData.hourlyData}
                         margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                       >
                         <CartesianGrid
@@ -827,7 +802,7 @@ function ReporteDiarioContent() {
                     ) : (
                       <ResponsiveContainer width="100%" height="100%">
                         <AreaChart
-                          data={processedData.hourlyData}
+                          data={coreData.hourlyData}
                           margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                         >
                           <CartesianGrid
@@ -881,7 +856,7 @@ function ReporteDiarioContent() {
                       <BarChart
                         width={500}
                         height={250}
-                        data={processedData.agentChartData}
+                        data={coreData.agentChartData}
                         margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                       >
                         <CartesianGrid
@@ -923,7 +898,7 @@ function ReporteDiarioContent() {
                     ) : (
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart
-                          data={processedData.agentChartData}
+                          data={coreData.agentChartData}
                           margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                         >
                           <CartesianGrid
@@ -981,7 +956,7 @@ function ReporteDiarioContent() {
                       Detalle de Operaciones
                     </CardTitle>
                     <span className="text-sm text-slate-500 font-normal bg-white px-2 py-0.5 rounded-full border border-slate-200">
-                      Total: {processedData.opsListLength}
+                      Total: {paginatedData.opsListLength}
                     </span>
                   </div>
 
@@ -1030,7 +1005,7 @@ function ReporteDiarioContent() {
                         </tr>
                       </thead>
                       <tbody>
-                        {processedData.paginatedOps.map((op, i) => (
+                        {paginatedData.paginatedOps.map((op, i) => (
                           <tr
                             key={i}
                             className="border-b hover:bg-slate-50/50 h-13"
@@ -1051,7 +1026,7 @@ function ReporteDiarioContent() {
                                 {op.tiempo} min
                               </span>
                             </td>
-                            <td className="px-4 py-2 text-slate-600 truncate max-w-[120px]">
+                            <td className="px-4 py-2 text-slate-600 truncate max-w-[120px]" title={op.operador}>
                               {op.operador}
                             </td>
                           </tr>
@@ -1060,10 +1035,10 @@ function ReporteDiarioContent() {
                     </table>
                   </div>
 
-                  {!isExportingPDF && processedData.totalPages > 1 && (
+                  {!isExportingPDF && paginatedData.totalPages > 1 && (
                     <div className="flex items-center justify-between px-4 py-3 border-t bg-slate-50 mt-auto">
                       <span className="text-sm text-slate-500">
-                        Página {currentPage} de {processedData.totalPages}
+                        Página {currentPage} de {paginatedData.totalPages}
                       </span>
                       <div className="flex gap-2">
                         <Button
@@ -1081,10 +1056,10 @@ function ReporteDiarioContent() {
                           size="sm"
                           onClick={() =>
                             setCurrentPage((p) =>
-                              Math.min(processedData.totalPages, p + 1),
+                              Math.min(paginatedData.totalPages, p + 1),
                             )
                           }
-                          disabled={currentPage === processedData.totalPages}
+                          disabled={currentPage === paginatedData.totalPages}
                         >
                           <ChevronRight className="w-4 h-4" />
                         </Button>
@@ -1101,9 +1076,9 @@ function ReporteDiarioContent() {
                       <AlertTriangle className="w-5 h-5 mr-2 text-rose-600" />{" "}
                       Brechas Críticas
                     </CardTitle>
-                    {processedData.allWorstOpsLength > 0 && (
+                    {paginatedData.allWorstOpsLength > 0 && (
                       <span className="text-sm font-bold text-rose-600 bg-white px-2 py-0.5 rounded-full border border-rose-200">
-                        {processedData.allWorstOpsLength} fallos
+                        {paginatedData.allWorstOpsLength} fallos
                       </span>
                     )}
                   </div>
@@ -1147,8 +1122,8 @@ function ReporteDiarioContent() {
                         </tr>
                       </thead>
                       <tbody>
-                        {processedData.paginatedWorstOps.length > 0 ? (
-                          processedData.paginatedWorstOps.map((op, i) => (
+                        {paginatedData.paginatedWorstOps.length > 0 ? (
+                          paginatedData.paginatedWorstOps.map((op, i) => (
                             <tr
                               key={i}
                               className="border-b hover:bg-rose-50/50 h-13"
@@ -1175,7 +1150,6 @@ function ReporteDiarioContent() {
                                 >
                                   {op.tiempo}
                                 </div>
-                                {/* 🔴 Etiqueta de Exonerado si hay comentario */}
                                 {op.comentarioBrecha && (
                                   <span className="block text-[10px] text-emerald-600 font-semibold leading-tight bg-emerald-50 rounded-full px-1.5 py-0.5 mt-0.5 w-max mx-auto border border-emerald-200">
                                     Exonerado
@@ -1220,11 +1194,11 @@ function ReporteDiarioContent() {
                     </table>
                   </div>
 
-                  {!isExportingPDF && processedData.totalWorstPages > 1 && (
+                  {!isExportingPDF && paginatedData.totalWorstPages > 1 && (
                     <div className="flex items-center justify-between px-4 py-3 border-t bg-rose-50 mt-auto">
                       <span className="text-sm text-rose-600/70 font-medium">
                         Pág {currentWorstPage} de{" "}
-                        {processedData.totalWorstPages}
+                        {paginatedData.totalWorstPages}
                       </span>
                       <div className="flex gap-2">
                         <Button
@@ -1244,11 +1218,11 @@ function ReporteDiarioContent() {
                           className="border-rose-200 text-rose-600 hover:bg-rose-100"
                           onClick={() =>
                             setCurrentWorstPage((p) =>
-                              Math.min(processedData.totalWorstPages, p + 1),
+                              Math.min(paginatedData.totalWorstPages, p + 1),
                             )
                           }
                           disabled={
-                            currentWorstPage === processedData.totalWorstPages
+                            currentWorstPage === paginatedData.totalWorstPages
                           }
                         >
                           <ChevronRight className="w-4 h-4" />
@@ -1267,9 +1241,9 @@ function ReporteDiarioContent() {
                     <Zap className="w-5 h-5 mr-2 text-emerald-600" />
                     Retiros Flash (&lt; 1 min)
                   </CardTitle>
-                  {processedData.superFastOps.length > 0 && (
+                  {coreData.superFastOps.length > 0 && (
                     <span className="text-sm font-bold text-emerald-700 bg-white px-2 py-0.5 rounded-full border border-emerald-200">
-                      {processedData.superFastOps.length} retiros
+                      {coreData.superFastOps.length} retiros
                     </span>
                   )}
                 </CardHeader>
@@ -1296,8 +1270,8 @@ function ReporteDiarioContent() {
                         </tr>
                       </thead>
                       <tbody>
-                        {processedData.paginatedFastOps.length > 0 ? (
-                          processedData.paginatedFastOps.map((op, i) => (
+                        {paginatedData.paginatedFastOps.length > 0 ? (
+                          paginatedData.paginatedFastOps.map((op, i) => (
                             <tr
                               key={i}
                               className="border-b hover:bg-emerald-50/50"
@@ -1334,10 +1308,10 @@ function ReporteDiarioContent() {
                     </table>
                   </div>
 
-                  {!isExportingPDF && processedData.totalFastPages > 1 && (
+                  {!isExportingPDF && paginatedData.totalFastPages > 1 && (
                     <div className="flex items-center justify-between px-4 py-3 border-t bg-emerald-50/50 mt-auto">
                       <span className="text-sm text-emerald-700/70 font-medium">
-                        Pág {currentFastPage} de {processedData.totalFastPages}
+                        Pág {currentFastPage} de {paginatedData.totalFastPages}
                       </span>
                       <div className="flex gap-2">
                         <Button
@@ -1357,11 +1331,11 @@ function ReporteDiarioContent() {
                           className="border-emerald-200 text-emerald-700 hover:bg-emerald-100"
                           onClick={() =>
                             setCurrentFastPage((p) =>
-                              Math.min(processedData.totalFastPages, p + 1),
+                              Math.min(paginatedData.totalFastPages, p + 1),
                             )
                           }
                           disabled={
-                            currentFastPage === processedData.totalFastPages
+                            currentFastPage === paginatedData.totalFastPages
                           }
                         >
                           <ChevronRight className="w-4 h-4" />
@@ -1373,7 +1347,6 @@ function ReporteDiarioContent() {
               </Card>
             </div>
 
-            {/* 🔴 NUEVA CAJA DE OBSERVACIONES DEL DÍA */}
             <div className="mt-6">
               <Card className="shadow-sm border-slate-200 bg-white">
                 <CardHeader className="bg-slate-50/50 border-b pb-4 flex flex-row items-center justify-between">

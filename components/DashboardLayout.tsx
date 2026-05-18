@@ -1,4 +1,3 @@
-// src/components/DashboardLayout.tsx
 "use client";
 
 import * as React from "react";

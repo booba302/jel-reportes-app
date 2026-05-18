@@ -1,4 +1,3 @@
-// src/app/monitor-regional/page.tsx
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -158,7 +157,7 @@ export default function MonitorRegionalPage() {
       viewportMeta.setAttribute("content", "width=1200, initial-scale=1");
     }
 
-    setTimeout(async () => {
+    requestAnimationFrame(() => requestAnimationFrame(async () => {
       const element = document.getElementById("monitor-regional-global");
       if (!element) {
         setIsExportingPDF(false);
@@ -213,7 +212,7 @@ export default function MonitorRegionalPage() {
           viewportMeta.setAttribute("content", originalViewport);
         setIsExportingPDF(false);
       }
-    }, 800);
+    }));
   };
 
   return (

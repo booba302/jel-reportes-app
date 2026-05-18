@@ -1,4 +1,3 @@
-// src/app/page.tsx
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -94,24 +93,30 @@ export default function DashboardPage() {
         const currentMonth = now.getMonth();
 
         if (dateFilter === "current_month") {
-          // Mes actual (Ej: Marzo) comparado con el anterior (Ej: Febrero)
           currStart = new Date(currentYear, currentMonth, 1);
           currEnd = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59);
           prevStart = new Date(currentYear, currentMonth - 1, 1);
           prevEnd = new Date(currentYear, currentMonth, 0, 23, 59, 59);
         } else if (dateFilter === "last_month") {
-          // Mes anterior (Ej: Febrero) comparado con el tras anterior (Ej: Enero)
           currStart = new Date(currentYear, currentMonth - 1, 1);
           currEnd = new Date(currentYear, currentMonth, 0, 23, 59, 59);
           prevStart = new Date(currentYear, currentMonth - 2, 1);
           prevEnd = new Date(currentYear, currentMonth - 1, 0, 23, 59, 59);
         } else if (dateFilter === "last_3_months") {
-          // Últimos 3 meses comparados con los 3 anteriores a esos
           currStart = new Date(currentYear, currentMonth - 2, 1);
           currEnd = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59);
           prevStart = new Date(currentYear, currentMonth - 5, 1);
           prevEnd = new Date(currentYear, currentMonth - 2, 0, 23, 59, 59);
         }
+
+        // Convert period bounds to local-timezone date strings (YYYY-MM-DD) so
+        // comparison against "Fecha del reporte" never shifts across day boundaries.
+        const toLocalDateStr = (d: Date) =>
+          `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        const currStartStr = toLocalDateStr(currStart);
+        const currEndStr = toLocalDateStr(currEnd);
+        const prevStartStr = toLocalDateStr(prevStart);
+        const prevEndStr = toLocalDateStr(prevEnd);
 
         // 2. Consulta a Firebase (Si es GLOBAL, traemos todo; si no, filtramos por moneda)
         let q;
@@ -136,26 +141,21 @@ export default function DashboardPage() {
         // 3. Procesamiento en Memoria
         snapshot.forEach((doc) => {
           const data = doc.data();
-          const opDate = new Date(data["Fecha de la operación"]);
+          const reportDateStr = String(data["Fecha del reporte"]).split("T")[0];
 
-          // Clasificamos si cae en el período actual o el anterior
           if (
             dateFilter === "all_time" ||
-            (opDate >= currStart && opDate <= currEnd)
+            (reportDateStr >= currStartStr && reportDateStr <= currEndStr)
           ) {
             currentData.push(data);
 
-            // Agrupaciones visuales solo para el período actual
             const cumple = data.Cumple === true;
             const operador = data.Operador || "Desconocido";
             const nivel = data.Nivel || "Estándar";
-            const dateOnly = String(data["Fecha de la operación"])
-              .split(" ")[0]
-              .replace(/\//g, "-");
 
-            if (!dayMap[dateOnly]) dayMap[dateOnly] = { total: 0, sla: 0 };
-            dayMap[dateOnly].total++;
-            if (cumple) dayMap[dateOnly].sla++;
+            if (!dayMap[reportDateStr]) dayMap[reportDateStr] = { total: 0, sla: 0 };
+            dayMap[reportDateStr].total++;
+            if (cumple) dayMap[reportDateStr].sla++;
 
             if (!lvlMap[nivel]) lvlMap[nivel] = 0;
             lvlMap[nivel]++;
@@ -165,7 +165,7 @@ export default function DashboardPage() {
               agtMap[operador].total++;
               if (cumple) agtMap[operador].sla++;
             }
-          } else if (opDate >= prevStart && opDate <= prevEnd) {
+          } else if (reportDateStr >= prevStartStr && reportDateStr <= prevEndStr) {
             prevData.push(data);
           }
         });
@@ -179,7 +179,7 @@ export default function DashboardPage() {
             autoCount = 0;
           dataset.forEach((d) => {
             tx++;
-            amount += Number(d.Cantidad) || 0;
+            amount += (Number(d.Cantidad) || 0) / 100;
             time += Number(d.Tiempo) || 0;
             if (d.Cumple) slaCount++;
             if (d.Operador === "Autopago") autoCount++;
@@ -368,7 +368,7 @@ export default function DashboardPage() {
                   {renderTrend(metrics.trend.slaPct, false, true)}
                 </div>
                 <p className="text-xs text-slate-500 mt-2">
-                  Retiros bajo 30 minutos
+                  Retiros bajo 25 minutos
                 </p>
               </CardContent>
             </Card>
@@ -418,7 +418,7 @@ export default function DashboardPage() {
                       ? "Múltiple"
                       : formatMoney(metrics.current.totalAmount, currency)}
                   </div>
-                  {renderTrend(metrics.trend.totalTx)}
+                  {renderTrend(metrics.trend.totalAmount)}
                 </div>
                 <p className="text-xs text-slate-500 mt-2">
                   {metrics.current.totalTx.toLocaleString("es-CL")}{" "}
@@ -593,7 +593,7 @@ export default function DashboardPage() {
                         Retiros Procesados
                       </th>
                       <th className="px-6 py-4 font-semibold text-center">
-                        SLA Cumplido (&lt; 30 min)
+                        SLA Cumplido (&lt; 25 min)
                       </th>
                     </tr>
                   </thead>

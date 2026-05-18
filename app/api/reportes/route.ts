@@ -1,13 +1,16 @@
-// src/app/api/reportes/route.ts
 import { NextResponse } from 'next/server';
 import { getReportData } from '@/services/googleDrive';
 
 export async function GET() {
   try {
-    // Reemplaza esto con el ID real de tu archivo en la URL de Google Drive
-    const FILE_ID = '1_twrJqbIEXudC_VKpXc82aSiR0xjfPs4QUBs7C0r1RY'; 
-    
-    // Llamamos a la función que creamos en el paso anterior
+    const FILE_ID = process.env.GOOGLE_DRIVE_FILE_ID;
+    if (!FILE_ID) {
+      return NextResponse.json(
+        { success: false, error: 'GOOGLE_DRIVE_FILE_ID no está configurado.' },
+        { status: 500 }
+      );
+    }
+
     const data = await getReportData(FILE_ID);
     
     // Devolvemos los datos al frontend en formato JSON

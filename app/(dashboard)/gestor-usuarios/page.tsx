@@ -1,4 +1,3 @@
-// src/app/gestor-usuarios/page.tsx
 "use client";
 
 import * as React from "react";

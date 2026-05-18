@@ -1,4 +1,3 @@
-// src/app/reporte-diario/page.tsx
 "use client";
 
 import * as React from "react";
@@ -19,7 +18,6 @@ import {
 import { useCurrency } from "@/app/context/CurrencyContext";
 import { useAuth } from "@/app/context/AuthContext";
 
-// 🔴 NUEVAS IMPORTACIONES DE FIREBASE
 import { writeBatch, doc, collection } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
@@ -102,7 +100,6 @@ export default function CargarArchivosPage() {
 
         toast.info("Descarga completa. Guardando en Base de Datos...");
 
-        // 🔴 GUARDADO EN FIREBASE DESDE EL FRONTEND
         const operacionesRef = collection(db, "operaciones_retiros");
         const operaciones = json.operaciones;
 
@@ -379,7 +376,7 @@ export default function CargarArchivosPage() {
                     >
                       <div className="flex items-center gap-2 overflow-hidden">
                         {getStatusIcon(item.status)}
-                        <span className="text-xs font-medium text-slate-700 truncate max-w-[150px]">
+                        <span className="text-xs font-medium text-slate-700 truncate max-w-[150px]" title={item.file.name}>
                           {item.file.name}
                         </span>
                       </div>
