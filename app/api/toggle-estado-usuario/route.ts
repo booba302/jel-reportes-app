@@ -1,4 +1,3 @@
-// src/app/api/toggle-estado-usuario/route.ts
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 

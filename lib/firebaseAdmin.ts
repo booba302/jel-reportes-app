@@ -1,4 +1,3 @@
-// src/lib/firebaseAdmin.ts
 import * as admin from "firebase-admin";
 
 // Evitamos inicializar múltiples veces en desarrollo
@@ -12,7 +11,6 @@ if (!admin.apps.length) {
         privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
       }),
     });
-    console.log("Firebase Admin inicializado correctamente.");
   } catch (error) {
     console.error("Error inicializando Firebase Admin:", error);
   }

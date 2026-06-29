@@ -1,4 +1,3 @@
-// src/components/MainLayout.tsx
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -26,7 +25,6 @@ function CurrencySelector() {
     if (normalizedRol.includes("admin"))
       return ["GLOBAL", "PEN", "CLP", "MXN", "USD", "VES"];
 
-    // 🔴 LA SOLUCIÓN: Evaluamos "internacional" ANTES que "nacional"
     if (
       normalizedRol.includes("internacional") ||
       normalizedRol.includes("inter")

@@ -1,4 +1,3 @@
-// src/app/api/crear-usuario/route.ts
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 

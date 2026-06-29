@@ -1,4 +1,3 @@
-// src/app/api/upload-reporte/route.ts
 import { NextResponse } from "next/server";
 import * as xlsx from "xlsx";
 import { adminDb } from "@/lib/firebaseAdmin";
@@ -18,7 +17,7 @@ function transformarFila(
   fila: FilaReporteCruda,
   moneda: string,
   fechaReporte: string,
-  rol: string, // 🔴 NUEVO PARÁMETRO: Recibimos el rol
+  rol: string,
 ) {
   const fechaOperacion = new Date(fila["Fecha de la operación"]);
   const fechaUpdate = new Date(fila["Update date"]);
@@ -27,7 +26,6 @@ function transformarFila(
   const minutos = diferenciaMs / (1000 * 60);
   const tiempo = Number(minutos.toFixed(2));
 
-  // 🔴 LÓGICA DE SLA DINÁMICO: 20 min para Nacional/VES, 30 min para Internacional
   const limiteSLA = 25;
   const cumple = tiempo <= limiteSLA;
 
@@ -76,7 +74,6 @@ export async function POST(request: Request) {
     const currency = formData.get("currency") as string;
     const subidoPor = formData.get("subidoPor") as string;
 
-    // 🔴 CAPTURAMOS EL ROL DEL FORM DATA
     const rol = (formData.get("rol") as string) || "";
 
     if (!file) {
@@ -143,7 +140,6 @@ export async function POST(request: Request) {
 
     // PREPARAMOS TODOS LOS DATOS
     for (const [dateStr, filasDeLaFecha] of Object.entries(reportesAgrupados)) {
-      // 🔴 LE PASAMOS EL ROL A LA FUNCIÓN DE TRANSFORMACIÓN
       const transformadas = filasDeLaFecha.map((fila) =>
         transformarFila(fila, currency, dateStr, rol),
       );

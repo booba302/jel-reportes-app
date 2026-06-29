@@ -1,6 +1,19 @@
-// src/app/api/sincronizar-global/route.ts
 import { NextResponse } from "next/server";
+<<<<<<< HEAD
 import { adminDb } from "@/lib/firebaseAdmin";
+=======
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  writeBatch,
+  doc,
+} from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { getMonedasByRol } from "@/lib/roles";
+import { isExonerated } from "@/lib/utils";
+>>>>>>> 26d164761ccc560b555d287c61f36bcfa48e6bc0
 
 const JEFES_EXCLUIDOS = ["Franklin Sanchez", "Marvin", "Evelyn"];
 
@@ -11,7 +24,6 @@ const calcularPuntajeSLA = (porcentaje: number) => {
 };
 
 const calcularPuntajeTiempo = (minutos: number) => {
-  // 🔴 CORRECCIÓN: Se agrega >= 0 por si un operador tiene todos sus retiros exonerados
   if (minutos >= 0 && minutos <= 10) return 10;
   if (minutos > 10 && minutos <= 15) return 9;
   if (minutos > 15 && minutos <= 20) return 8;
@@ -35,15 +47,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Definición de monedas por rol
-    let monedasPermitidas: string[] = [];
-    if (rol === "agente_retiros_internacional") {
-      monedasPermitidas = ["CLP", "PEN", "USD", "MXN"];
-    } else if (rol === "agente_retiros_nacional") {
-      monedasPermitidas = ["VES"];
-    } else {
-      monedasPermitidas = ["CLP", "PEN", "USD", "MXN", "VES"];
-    }
+    const monedasPermitidas = getMonedasByRol(rol);
 
     const start = `${fecha}T00:00:00.000Z`;
     const end = `${fecha}T23:59:59.999Z`;
@@ -52,16 +56,19 @@ export async function POST(request: Request) {
       .where("Fecha del reporte", ">=", start)
       .where("Fecha del reporte", "<=", end);
 
+<<<<<<< HEAD
     console.log(qOps);
     const snapOps = await qOps.get();
     console.log(snapOps);
+=======
+    const snapOps = await getDocs(qOps);
+>>>>>>> 26d164761ccc560b555d287c61f36bcfa48e6bc0
 
-    // 🔴 NUEVA ESTRUCTURA: Separamos lo Total de lo Evaluable
     const agtMap: Record<
       string,
       {
-        totalGeneral: number; // Volumen de trabajo total
-        totalEvaluable: number; // Solo los NO exonerados
+        totalGeneral: number;
+        totalEvaluable: number;
         cumpleEvaluable: number;
         tiempoEvaluable: number;
         monedaPrincipal: string;
@@ -73,7 +80,6 @@ export async function POST(request: Request) {
       const op = data.Operador || "Desconocido";
       const moneda = data.Moneda || "";
 
-      // FILTROS: Jefes, Autopagos y Monedas según Rol
       if (JEFES_EXCLUIDOS.includes(op)) return;
       if (op.toLowerCase().includes("autopago")) return;
       if (!monedasPermitidas.includes(moneda)) return;
@@ -88,21 +94,16 @@ export async function POST(request: Request) {
         };
       }
 
-      // Sumamos al volumen general siempre
       agtMap[op].totalGeneral++;
 
-      // 🔴 REVISAMOS SI ESTÁ EXONERADO (Tiene comentario de brecha)
-      const isExonerated =
-        data.comentarioBrecha && data.comentarioBrecha.trim() !== "";
-
-      // Si no está exonerado, afecta sus métricas
-      if (!isExonerated) {
+      if (!isExonerated(data.comentarioBrecha)) {
         agtMap[op].totalEvaluable++;
         agtMap[op].tiempoEvaluable += Number(data.Tiempo) || 0;
         if (data.Cumple === true) agtMap[op].cumpleEvaluable++;
       }
     });
 
+<<<<<<< HEAD
     console.log(agtMap);
 
     const batch = adminDb.batch();
@@ -150,16 +151,64 @@ export async function POST(request: Request) {
       );
 
       procesados++;
+=======
+    const operadores = Object.keys(agtMap);
+    const chunks: string[][] = [];
+    for (let i = 0; i < operadores.length; i += 500) {
+      chunks.push(operadores.slice(i, i + 500));
     }
 
-    const ap = await batch.commit();
-    console.log(ap);
+    for (const chunk of chunks) {
+      const batch = writeBatch(db);
+      for (const op of chunk) {
+        const metrics = agtMap[op];
+
+        const slaPct =
+          metrics.totalEvaluable > 0
+            ? (metrics.cumpleEvaluable / metrics.totalEvaluable) * 100
+            : 100;
+
+        const avgTime =
+          metrics.totalEvaluable > 0
+            ? metrics.tiempoEvaluable / metrics.totalEvaluable
+            : 0;
+
+        const idUnico = `${fecha}_${op.replace(/\s+/g, "_")}`;
+        const docRef = doc(db, "evaluaciones_desempeno", idUnico);
+        const grupo = metrics.monedaPrincipal === "VES" ? "nacional" : "inter";
+
+        batch.set(
+          docRef,
+          {
+            id: idUnico,
+            fecha: `${fecha}T00:00:00.000Z`,
+            operador: op,
+            totalRetiros: metrics.totalGeneral,
+            cumplimientoSlaPct: Number(slaPct.toFixed(1)),
+            tiempoPromedioMin: Number(avgTime.toFixed(1)),
+            puntajeSla: calcularPuntajeSLA(slaPct),
+            puntajeTiempo: calcularPuntajeTiempo(avgTime),
+            grupoMoneda: grupo,
+            estado: "Pendiente",
+            completoTurno: true,
+            tuvoInconveniente: false,
+            comentarioInconveniente: "",
+            puntualidad: 10,
+            proactividad: 10,
+          },
+          { merge: true },
+        );
+      }
+      await batch.commit();
+>>>>>>> 26d164761ccc560b555d287c61f36bcfa48e6bc0
+    }
+
     return NextResponse.json({
       success: true,
-      mensaje: `Sincronizados ${procesados} operadores.`,
+      mensaje: `Sincronizados ${operadores.length} operadores.`,
     });
   } catch (error) {
-    console.log(error)
+    console.error(error)
     return NextResponse.json(
       { success: false, error: "Error interno" },
       { status: 500 },

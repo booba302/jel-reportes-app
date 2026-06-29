@@ -1,4 +1,3 @@
-// src/components/Sidebar.tsx
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -198,7 +197,6 @@ export function Sidebar({
           className="h-16 flex items-center justify-between px-6 bg-slate-950/50 border-b border-slate-800 shrink-0 hover:bg-slate-900/80 transition-colors group"
         >
           <div className="flex items-center gap-3">
-            {/* 🔴 CONTENEDOR OSCURO PARA EL LOGO */}
             <div className="bg-slate-900 p-1.5 rounded-lg h-9 w-11 flex items-center justify-center border border-slate-700 shadow-sm group-hover:scale-105 transition-transform">
               <img
                 src="/logo.png"
@@ -269,14 +267,15 @@ export function Sidebar({
                       <Link
                         key={item.href}
                         href={item.href}
+                        aria-current={isActive ? "page" : undefined}
                         onClick={() =>
                           window.innerWidth < 1024 && setIsOpen(false)
                         }
                         className={cn(
                           "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group",
                           isActive
-                            ? "bg-primary/10 text-white"
-                            : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200",
+                            ? "bg-primary/10 text-white border-l-2 border-primary"
+                            : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 border-l-2 border-transparent",
                         )}
                       >
                         <item.icon
@@ -287,7 +286,7 @@ export function Sidebar({
                         />
                         {item.label}
                         {isActive && (
-                          <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                          <ChevronRight className="ml-auto w-4 h-4 text-primary shrink-0" aria-hidden="true" />
                         )}
                       </Link>
                     );

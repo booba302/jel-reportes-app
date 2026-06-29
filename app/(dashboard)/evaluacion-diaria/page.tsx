@@ -1,4 +1,3 @@
-// src/app/(dashboard)/evaluacion-diaria/page.tsx
 "use client";
 
 import * as React from "react";
@@ -11,7 +10,7 @@ import {
   getDocs,
   doc,
   updateDoc,
-  writeBatch, // <-- NUEVO IMPORT AGREGADO
+  writeBatch,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/app/context/AuthContext";
@@ -26,7 +25,8 @@ import {
   X,
   Globe,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, isExonerated } from "@/lib/utils";
+import { parseUserRole, getMonedasByRol } from "@/lib/roles";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -63,7 +63,6 @@ interface Evaluacion {
   grupoMoneda?: string;
 }
 
-// 🔴 NUEVAS FUNCIONES Y CONSTANTES PARA LA SINCRONIZACIÓN
 const JEFES_EXCLUIDOS = ["Franklin Sanchez", "Marvin", "Evelyn"];
 
 const calcularPuntajeSLA = (porcentaje: number) => {
@@ -87,8 +86,7 @@ const calcularPuntajeTiempo = (minutos: number) => {
 export default function EvaluacionDesempenoPage() {
   const { userData } = useAuth();
   const userRole = userData?.rol?.toLowerCase().trim() || "";
-  const isAdmin =
-    userRole.includes("admin") || userRole.includes("administrador");
+  const { isAdmin } = parseUserRole(userData?.rol);
 
   const [date, setDate] = React.useState<Date | undefined>(new Date());
   const [evaluaciones, setEvaluaciones] = React.useState<Evaluacion[]>([]);
@@ -149,7 +147,6 @@ export default function EvaluacionDesempenoPage() {
     fetchEvaluaciones();
   }, [date, userRole]);
 
-  // 🔴 NUEVA LÓGICA DE SINCRONIZACIÓN DIRECTA
   const handleSincronizar = async () => {
     if (!date) return;
     setIsSyncing(true);
@@ -157,15 +154,7 @@ export default function EvaluacionDesempenoPage() {
 
     try {
       const fechaSeleccionada = format(date, "yyyy-MM-dd");
-      let monedasPermitidas: string[] = [];
-
-      if (userRole.includes("agente_retiros_internacional")) {
-        monedasPermitidas = ["CLP", "PEN", "USD", "MXN"];
-      } else if (userRole.includes("agente_retiros_nacional")) {
-        monedasPermitidas = ["VES"];
-      } else {
-        monedasPermitidas = ["CLP", "PEN", "USD", "MXN", "VES"];
-      }
+      const monedasPermitidas = getMonedasByRol(userData?.rol);
 
       const start = `${fechaSeleccionada}T00:00:00.000Z`;
       const end = `${fechaSeleccionada}T23:59:59.999Z`;
@@ -210,69 +199,70 @@ export default function EvaluacionDesempenoPage() {
 
         agtMap[op].totalGeneral++;
 
-        const isExonerated =
-          data.comentarioBrecha && data.comentarioBrecha.trim() !== "";
-
-        if (!isExonerated) {
+        if (!isExonerated(data.comentarioBrecha)) {
           agtMap[op].totalEvaluable++;
           agtMap[op].tiempoEvaluable += Number(data.Tiempo) || 0;
           if (data.Cumple === true) agtMap[op].cumpleEvaluable++;
         }
       });
 
-      const batch = writeBatch(db);
-      let procesados = 0;
+      const operadores = Object.keys(agtMap);
 
-      for (const op of Object.keys(agtMap)) {
-        const metrics = agtMap[op];
-
-        const slaPct =
-          metrics.totalEvaluable > 0
-            ? (metrics.cumpleEvaluable / metrics.totalEvaluable) * 100
-            : 100;
-
-        const avgTime =
-          metrics.totalEvaluable > 0
-            ? metrics.tiempoEvaluable / metrics.totalEvaluable
-            : 0;
-
-        const idUnico = `${fechaSeleccionada}_${op.replace(/\s+/g, "_")}`;
-        const docRef = doc(db, "evaluaciones_desempeno", idUnico);
-        const grupo = metrics.monedaPrincipal === "VES" ? "nacional" : "inter";
-
-        batch.set(
-          docRef,
-          {
-            id: idUnico,
-            fecha: `${fechaSeleccionada}T00:00:00.000Z`,
-            operador: op,
-            totalRetiros: metrics.totalGeneral,
-            cumplimientoSlaPct: Number(slaPct.toFixed(1)),
-            tiempoPromedioMin: Number(avgTime.toFixed(1)),
-            puntajeSla: calcularPuntajeSLA(slaPct),
-            puntajeTiempo: calcularPuntajeTiempo(avgTime),
-            grupoMoneda: grupo,
-            estado: "Pendiente",
-            completoTurno: true,
-            tuvoInconveniente: false,
-            comentarioInconveniente: "",
-            puntualidad: 10,
-            proactividad: 10,
-          },
-          { merge: true },
-        );
-
-        procesados++;
-      }
-
-      if (procesados === 0) {
-        toast.info(
-          "No se encontraron operaciones de tu grupo para esta fecha.",
-        );
+      if (operadores.length === 0) {
+        toast.info("No se encontraron operaciones de tu grupo para esta fecha.");
       } else {
-        await batch.commit();
+        const chunks: string[][] = [];
+        for (let i = 0; i < operadores.length; i += 500) {
+          chunks.push(operadores.slice(i, i + 500));
+        }
+
+        for (const chunk of chunks) {
+          const batch = writeBatch(db);
+          for (const op of chunk) {
+            const metrics = agtMap[op];
+
+            const slaPct =
+              metrics.totalEvaluable > 0
+                ? (metrics.cumpleEvaluable / metrics.totalEvaluable) * 100
+                : 100;
+
+            const avgTime =
+              metrics.totalEvaluable > 0
+                ? metrics.tiempoEvaluable / metrics.totalEvaluable
+                : 0;
+
+            const idUnico = `${fechaSeleccionada}_${op.replace(/\s+/g, "_")}`;
+            const docRef = doc(db, "evaluaciones_desempeno", idUnico);
+            const grupo =
+              metrics.monedaPrincipal === "VES" ? "nacional" : "inter";
+
+            batch.set(
+              docRef,
+              {
+                id: idUnico,
+                fecha: `${fechaSeleccionada}T00:00:00.000Z`,
+                operador: op,
+                totalRetiros: metrics.totalGeneral,
+                cumplimientoSlaPct: Number(slaPct.toFixed(1)),
+                tiempoPromedioMin: Number(avgTime.toFixed(1)),
+                puntajeSla: calcularPuntajeSLA(slaPct),
+                puntajeTiempo: calcularPuntajeTiempo(avgTime),
+                grupoMoneda: grupo,
+                estado: "Pendiente",
+                completoTurno: true,
+                tuvoInconveniente: false,
+                comentarioInconveniente: "",
+                puntualidad: 10,
+                proactividad: 10,
+              },
+              { merge: true },
+            );
+          }
+          await batch.commit();
+        }
+
         toast.success(`¡Sincronización exitosa!`, {
-          description: `Se procesaron y actualizaron ${procesados} operadores.`,
+          description: `Se procesaron y actualizaron ${operadores.length} operadores.`,
         });
         await fetchEvaluaciones();
       }

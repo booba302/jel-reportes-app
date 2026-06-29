@@ -1,4 +1,3 @@
-// src/components/AutoLogoutGuard.tsx
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";

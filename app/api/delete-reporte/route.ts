@@ -1,4 +1,3 @@
-// src/app/api/delete-reporte/route.ts
 import { NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebaseAdmin';
 

@@ -1,7 +1,5 @@
-// src/app/api/fetch-api-reporte/route.ts
 import { NextResponse } from "next/server";
 
-// 🔴 CONFIGURACIÓN DE ZONA HORARIA
 const HORAS_DIFERENCIA = 3;
 
 function ajustarFechaUTCaLocal(fechaString: string) {
@@ -182,7 +180,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: true,
         message: `No se encontraron operaciones para ${currency} en esta fecha.`,
-        operaciones: [], // 🔴 Devolvemos array vacío
+        operaciones: [],
       });
     }
 
@@ -198,7 +196,6 @@ export async function POST(request: Request) {
       totalRegistros: todasLasOperacionesNuevas.length,
     };
 
-    // 🔴 EN LUGAR DE GUARDAR, DEVOLVEMOS LA DATA AL FRONTEND
     return NextResponse.json({
       success: true,
       message: `Extracción completada. Listo para guardar ${todasLasOperacionesNuevas.length} operaciones.`,

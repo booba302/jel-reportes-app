@@ -1,4 +1,3 @@
-// src/app/api/cambiar-password/route.ts
 import { NextResponse } from "next/server";
 import { adminAuth } from "@/lib/firebaseAdmin";
 
