@@ -1,19 +1,7 @@
 import { NextResponse } from "next/server";
-<<<<<<< HEAD
 import { adminDb } from "@/lib/firebaseAdmin";
-=======
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  writeBatch,
-  doc,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
 import { getMonedasByRol } from "@/lib/roles";
 import { isExonerated } from "@/lib/utils";
->>>>>>> 26d164761ccc560b555d287c61f36bcfa48e6bc0
 
 const JEFES_EXCLUIDOS = ["Franklin Sanchez", "Marvin", "Evelyn"];
 
@@ -52,17 +40,12 @@ export async function POST(request: Request) {
     const start = `${fecha}T00:00:00.000Z`;
     const end = `${fecha}T23:59:59.999Z`;
 
-    const qOps = adminDb.collection("operaciones_retiros")
+    const qOps = adminDb
+      .collection("operaciones_retiros")
       .where("Fecha del reporte", ">=", start)
       .where("Fecha del reporte", "<=", end);
 
-<<<<<<< HEAD
-    console.log(qOps);
     const snapOps = await qOps.get();
-    console.log(snapOps);
-=======
-    const snapOps = await getDocs(qOps);
->>>>>>> 26d164761ccc560b555d287c61f36bcfa48e6bc0
 
     const agtMap: Record<
       string,
@@ -103,55 +86,6 @@ export async function POST(request: Request) {
       }
     });
 
-<<<<<<< HEAD
-    console.log(agtMap);
-
-    const batch = adminDb.batch();
-    let procesados = 0;
-
-    for (const op of Object.keys(agtMap)) {
-      const metrics = agtMap[op];
-
-      const slaPct =
-        metrics.totalEvaluable > 0
-          ? (metrics.cumpleEvaluable / metrics.totalEvaluable) * 100
-          : 100;
-
-      const avgTime =
-        metrics.totalEvaluable > 0
-          ? metrics.tiempoEvaluable / metrics.totalEvaluable
-          : 0;
-
-      const idUnico = `${fecha}_${op.replace(/\s+/g, "_")}`;
-      const docRef = adminDb.collection("evaluaciones_desempeno").doc(idUnico);
-
-      const grupo = metrics.monedaPrincipal === "VES" ? "nacional" : "inter";
-      console.log(grupo);
-
-      batch.set(
-        docRef,
-        {
-          id: idUnico,
-          fecha: `${fecha}T00:00:00.000Z`,
-          operador: op,
-          totalRetiros: metrics.totalGeneral, // Mostramos su volumen real de trabajo
-          cumplimientoSlaPct: Number(slaPct.toFixed(1)),
-          tiempoPromedioMin: Number(avgTime.toFixed(1)),
-          puntajeSla: calcularPuntajeSLA(slaPct),
-          puntajeTiempo: calcularPuntajeTiempo(avgTime),
-          grupoMoneda: grupo,
-          estado: "Pendiente",
-          completoTurno: true,
-          tuvoInconveniente: false,
-          comentarioInconveniente: "",
-          puntualidad: 10,
-          proactividad: 10,
-        },
-        { merge: true },
-      );
-
-      procesados++;
-=======
     const operadores = Object.keys(agtMap);
     const chunks: string[][] = [];
     for (let i = 0; i < operadores.length; i += 500) {
@@ -159,7 +93,7 @@ export async function POST(request: Request) {
     }
 
     for (const chunk of chunks) {
-      const batch = writeBatch(db);
+      const batch = adminDb.batch();
       for (const op of chunk) {
         const metrics = agtMap[op];
 
@@ -174,7 +108,7 @@ export async function POST(request: Request) {
             : 0;
 
         const idUnico = `${fecha}_${op.replace(/\s+/g, "_")}`;
-        const docRef = doc(db, "evaluaciones_desempeno", idUnico);
+        const docRef = adminDb.collection("evaluaciones_desempeno").doc(idUnico);
         const grupo = metrics.monedaPrincipal === "VES" ? "nacional" : "inter";
 
         batch.set(
@@ -200,7 +134,6 @@ export async function POST(request: Request) {
         );
       }
       await batch.commit();
->>>>>>> 26d164761ccc560b555d287c61f36bcfa48e6bc0
     }
 
     return NextResponse.json({
@@ -208,7 +141,7 @@ export async function POST(request: Request) {
       mensaje: `Sincronizados ${operadores.length} operadores.`,
     });
   } catch (error) {
-    console.error(error)
+    console.error(error);
     return NextResponse.json(
       { success: false, error: "Error interno" },
       { status: 500 },
