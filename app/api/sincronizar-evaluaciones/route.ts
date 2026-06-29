@@ -1,14 +1,6 @@
 // src/app/api/sincronizar-global/route.ts
 import { NextResponse } from "next/server";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  writeBatch,
-  doc,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { adminDb } from "@/lib/firebaseAdmin";
 
 const JEFES_EXCLUIDOS = ["Franklin Sanchez", "Marvin", "Evelyn"];
 
@@ -56,14 +48,12 @@ export async function POST(request: Request) {
     const start = `${fecha}T00:00:00.000Z`;
     const end = `${fecha}T23:59:59.999Z`;
 
-    const qOps = query(
-      collection(db, "operaciones_retiros"),
-      where("Fecha del reporte", ">=", start),
-      where("Fecha del reporte", "<=", end),
-    );
+    const qOps = adminDb.collection("operaciones_retiros")
+      .where("Fecha del reporte", ">=", start)
+      .where("Fecha del reporte", "<=", end);
 
     console.log(qOps);
-    const snapOps = await getDocs(qOps);
+    const snapOps = await qOps.get();
     console.log(snapOps);
 
     // 🔴 NUEVA ESTRUCTURA: Separamos lo Total de lo Evaluable
@@ -115,14 +105,12 @@ export async function POST(request: Request) {
 
     console.log(agtMap);
 
-    const batch = writeBatch(db);
+    const batch = adminDb.batch();
     let procesados = 0;
 
     for (const op of Object.keys(agtMap)) {
       const metrics = agtMap[op];
 
-      // 🔴 CÁLCULO FINAL: Basado SOLO en los evaluables
-      // Si totalEvaluable es 0 (ej. todos fueron exonerados), se le da 100% de SLA y 0 min promedio.
       const slaPct =
         metrics.totalEvaluable > 0
           ? (metrics.cumpleEvaluable / metrics.totalEvaluable) * 100
@@ -134,7 +122,7 @@ export async function POST(request: Request) {
           : 0;
 
       const idUnico = `${fecha}_${op.replace(/\s+/g, "_")}`;
-      const docRef = doc(db, "evaluaciones_desempeno", idUnico);
+      const docRef = adminDb.collection("evaluaciones_desempeno").doc(idUnico);
 
       const grupo = metrics.monedaPrincipal === "VES" ? "nacional" : "inter";
       console.log(grupo);

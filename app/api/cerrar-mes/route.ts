@@ -1,14 +1,6 @@
 // src/app/api/cerrar-mes/route.ts
 import { NextResponse } from "next/server";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  writeBatch,
-  doc,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { adminDb } from "@/lib/firebaseAdmin";
 
 export async function POST(request: Request) {
   try {
@@ -38,13 +30,11 @@ export async function POST(request: Request) {
     const end = `${mes}-31T23:59:59.999Z`;
 
     // 2. CONSULTA FILTRADA POR GRUPO
-    const qEvals = query(
-      collection(db, "evaluaciones_desempeno"),
-      where("fecha", ">=", start),
-      where("fecha", "<=", end),
-    );
+    const qEvals = adminDb.collection("evaluaciones_desempeno")
+      .where("fecha", ">=", start)
+      .where("fecha", "<=", end);
 
-    const snapshot = await getDocs(qEvals);
+    const snapshot = await qEvals.get();
     const evalsFiltradas = snapshot.docs
       .map((d) => d.data())
       .filter((d) => (grupo === "global" ? true : d.grupoMoneda === grupo));
@@ -84,12 +74,12 @@ export async function POST(request: Request) {
       if (data.tuvoInconveniente) reporteOperadores[nombre].inconvenientes++;
     });
 
-    const batch = writeBatch(db);
+    const batch = adminDb.batch();
 
     // Guardar promedios mensuales
     for (const [nombre, metrics] of Object.entries(reporteOperadores)) {
       const docId = `${mes}_${nombre.replace(/\s+/g, "_").toLowerCase()}`;
-      const docRef = doc(db, "evaluaciones_mensuales", docId);
+      const docRef = adminDb.collection("evaluaciones_mensuales").doc(docId);
 
       batch.set(
         docRef,
@@ -114,7 +104,7 @@ export async function POST(request: Request) {
 
     // Registrar estatus del cierre para este grupo
     const statusId = `${mes}_${grupo}`;
-    const statusRef = doc(db, "cierres_mensuales_status", statusId);
+    const statusRef = adminDb.collection("cierres_mensuales_status").doc(statusId);
     batch.set(statusRef, {
       mes,
       grupo,

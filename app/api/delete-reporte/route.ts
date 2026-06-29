@@ -1,7 +1,6 @@
 // src/app/api/delete-reporte/route.ts
 import { NextResponse } from 'next/server';
-import { collection, query, where, getDocs, writeBatch, doc, deleteDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { adminDb } from '@/lib/firebaseAdmin';
 
 export async function DELETE(request: Request) {
   try {
@@ -15,16 +14,14 @@ export async function DELETE(request: Request) {
     }
 
     // 1. Buscar todos los registros individuales de esa fecha y moneda
-    const q = query(
-      collection(db, 'operaciones_retiros'), 
-      where('Fecha del reporte', '==', fecha), 
-      where('Moneda', '==', moneda)
-    );
-    const snapshot = await getDocs(q);
+    const q = adminDb.collection('operaciones_retiros')
+      .where('Fecha del reporte', '==', fecha)
+      .where('Moneda', '==', moneda);
+    const snapshot = await q.get();
 
     // 2. Preparar el borrado en lotes (Batch) de 500 en 500
     const batches = [];
-    let currentBatch = writeBatch(db);
+    let currentBatch = adminDb.batch();
     let count = 0;
 
     snapshot.docs.forEach((documento) => {
@@ -32,7 +29,7 @@ export async function DELETE(request: Request) {
       count++;
       if (count === 500) {
         batches.push(currentBatch.commit());
-        currentBatch = writeBatch(db);
+        currentBatch = adminDb.batch();
         count = 0;
       }
     });
@@ -46,7 +43,7 @@ export async function DELETE(request: Request) {
     await Promise.all(batches);
 
     // 3. Borramos el registro padre del historial
-    await deleteDoc(doc(db, 'historial_reportes', idHistorial));
+    await adminDb.collection('historial_reportes').doc(idHistorial).delete();
 
     return NextResponse.json({ 
       success: true, 

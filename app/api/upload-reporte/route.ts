@@ -1,8 +1,7 @@
 // src/app/api/upload-reporte/route.ts
 import { NextResponse } from "next/server";
 import * as xlsx from "xlsx";
-import { writeBatch, doc, collection } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { adminDb } from "@/lib/firebaseAdmin";
 
 interface FilaReporteCruda {
   "Fecha de la operación": string;
@@ -137,7 +136,7 @@ export async function POST(request: Request) {
       reportesAgrupados[dateStr].push(fila);
     }
 
-    const operacionesRef = collection(db, "operaciones_retiros");
+    const operacionesRef = adminDb.collection("operaciones_retiros");
     const todasLasOperacionesNuevas = [];
     const historialesNuevos = [];
     const fechasProcesadas = Object.keys(reportesAgrupados);
@@ -172,20 +171,18 @@ export async function POST(request: Request) {
     }
 
     for (const chunk of chunks) {
-      const batch = writeBatch(db);
+      const batch = adminDb.batch();
       chunk.forEach((item) => {
-        // Usamos el ID determinista específico en lugar de dejar que Firebase invente uno
-        const docRef = doc(operacionesRef, item.idUnico);
+        const docRef = operacionesRef.doc(item.idUnico);
         batch.set(docRef, item.datos, { merge: true });
       });
       await batch.commit();
     }
 
     // Guardar/Actualizar los historiales
-    const batchHistorial = writeBatch(db);
+    const batchHistorial = adminDb.batch();
     historialesNuevos.forEach((historial) => {
-      const ref = doc(db, "historial_reportes", historial.id);
-      // Solo actualizamos la fecha de subida para no sobreescribir otros datos si ya existía
+      const ref = adminDb.collection("historial_reportes").doc(historial.id);
       batchHistorial.set(ref, historial, { merge: true });
     });
     await batchHistorial.commit();
