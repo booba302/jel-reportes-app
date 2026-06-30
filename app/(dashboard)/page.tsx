@@ -363,8 +363,36 @@ export default function DashboardPage() {
               <SelectItem value="last_month">Mes Anterior</SelectItem>
               <SelectItem value="last_3_months">Últimos 3 Meses</SelectItem>
               <SelectItem value="all_time">Histórico Completo</SelectItem>
+              <SelectItem value="custom">Rango Personalizado</SelectItem>
             </SelectContent>
           </Select>
+
+          {dateFilter === "custom" && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="h-9 justify-start text-left font-normal bg-white border-slate-300 text-sm"
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {customRange?.from && customRange?.to ? (
+                    `${format(customRange.from, "dd MMM", { locale: es })} – ${format(customRange.to, "dd MMM yyyy", { locale: es })}`
+                  ) : (
+                    <span>Selecciona un rango</span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="end">
+                <Calendar
+                  mode="range"
+                  selected={customRange}
+                  onSelect={setCustomRange}
+                  numberOfMonths={2}
+                  locale={es}
+                />
+              </PopoverContent>
+            </Popover>
+          )}
         </div>
       </div>
 
