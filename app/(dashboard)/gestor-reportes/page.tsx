@@ -10,11 +10,18 @@ import {
   Loader2,
   AlertCircle,
   User,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useCurrency } from "../../context/CurrencyContext";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
 // Importamos el AlertDialog de Shadcn
 import {
@@ -66,6 +73,23 @@ export default function GestorReportesPage() {
   const [mesFiltro, setMesFiltro] = React.useState<string>(
     format(new Date(), "yyyy-MM"),
   );
+  const [pickerYear, setPickerYear] = React.useState(
+    parseInt(format(new Date(), "yyyy")),
+  );
+  const mesesNombres = [
+    "Ene",
+    "Feb",
+    "Mar",
+    "Abr",
+    "May",
+    "Jun",
+    "Jul",
+    "Ago",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dic",
+  ];
 
   const fetchHistorial = async () => {
     setIsLoading(true);
@@ -149,15 +173,61 @@ export default function GestorReportesPage() {
           </p>
         </div>
 
-        {/* NOTA: Aquí también tienes un input type="month". Si quieres luego lo cambiamos por el popover de Shadcn que hicimos antes */}
         <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
-          <label className="text-sm font-medium text-slate-600">Mes:</label>
-          <input
-            type="month"
-            value={mesFiltro}
-            onChange={(e) => setMesFiltro(e.target.value)}
-            className="border-none bg-transparent text-sm font-medium focus:ring-0 outline-none text-slate-700"
-          />
+          <span className="text-sm font-medium text-slate-600">Mes:</span>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                className="w-[180px] justify-start text-left font-normal bg-white"
+              >
+                <CalendarDays className="mr-2 h-4 w-4" />
+                {format(
+                  new Date(
+                    parseInt(mesFiltro.split("-")[0]),
+                    parseInt(mesFiltro.split("-")[1]) - 1,
+                    1,
+                  ),
+                  "MMMM yyyy",
+                  { locale: es },
+                ).replace(/^\w/, (c) => c.toUpperCase())}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 p-3" align="end">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setPickerYear((y) => y - 1)}
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <div className="font-bold text-slate-800">{pickerYear}</div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setPickerYear((y) => y + 1)}
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {mesesNombres.map((mes, idx) => {
+                  const val = `${pickerYear}-${String(idx + 1).padStart(2, "0")}`;
+                  return (
+                    <Button
+                      key={mes}
+                      variant={mesFiltro === val ? "default" : "ghost"}
+                      className="h-9"
+                      onClick={() => setMesFiltro(val)}
+                    >
+                      {mes}
+                    </Button>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
