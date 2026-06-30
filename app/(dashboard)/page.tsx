@@ -4,6 +4,9 @@ import React, { useState, useEffect } from "react";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useCurrency } from "../context/CurrencyContext";
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
+import type { DateRange } from "react-day-picker";
 import {
   Activity,
   Clock,
@@ -16,6 +19,7 @@ import {
   Minus,
   Users,
   CalendarRange,
+  Calendar as CalendarIcon,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -25,6 +29,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   AreaChart,
   Area,
@@ -70,6 +81,9 @@ const COLORS = [
 export default function DashboardPage() {
   const { currency } = useCurrency();
   const [dateFilter, setDateFilter] = useState("current_month");
+  const [customRange, setCustomRange] = useState<DateRange | undefined>(
+    undefined,
+  );
   const [isLoading, setIsLoading] = useState(true);
 
   const [metrics, setMetrics] = useState<PeriodComparison | null>(null);
@@ -107,6 +121,27 @@ export default function DashboardPage() {
           currEnd = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59);
           prevStart = new Date(currentYear, currentMonth - 5, 1);
           prevEnd = new Date(currentYear, currentMonth - 2, 0, 23, 59, 59);
+        } else if (dateFilter === "custom") {
+          if (!customRange?.from || !customRange?.to) {
+            setMetrics(null);
+            setDailyData([]);
+            setLevelData([]);
+            setAgentData([]);
+            setIsLoading(false);
+            return;
+          }
+          currStart = customRange.from;
+          currEnd = new Date(
+            customRange.to.getFullYear(),
+            customRange.to.getMonth(),
+            customRange.to.getDate(),
+            23,
+            59,
+            59,
+          );
+          const durationMs = currEnd.getTime() - currStart.getTime();
+          prevEnd = new Date(currStart.getTime() - 1000);
+          prevStart = new Date(prevEnd.getTime() - durationMs);
         }
 
         // Convert period bounds to local-timezone date strings (YYYY-MM-DD) so
@@ -245,7 +280,7 @@ export default function DashboardPage() {
     };
 
     fetchDashboardData();
-  }, [currency, dateFilter]); // Se recalcula si cambia la moneda o el filtro de fecha
+  }, [currency, dateFilter, customRange?.from, customRange?.to]); // Se recalcula si cambia la moneda, el filtro de fecha, o el rango personalizado
 
   // Formateadores
   const formatMoney = (amount: number, currencyCode: string) => {
