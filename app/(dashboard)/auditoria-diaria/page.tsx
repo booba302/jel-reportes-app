@@ -85,6 +85,13 @@ interface OperacionRow {
   comentarioBrecha?: string;
 }
 
+const EXONERATION_REASONS = [
+  "En Revisión",
+  "Problemas con la plataforma",
+  "Problemas con el método de pago",
+  "Falta de fondos para pagar",
+] as const;
+
 function ReporteDiarioContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -115,7 +122,7 @@ function ReporteDiarioContent() {
   // Estados para el Modal de Comentarios de Brecha
   const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [selectedOpId, setSelectedOpId] = useState("");
-  const [commentText, setCommentText] = useState("");
+  const [selectedReason, setSelectedReason] = useState<string | null>(null);
   const [isSavingComment, setIsSavingComment] = useState(false);
 
   const [dailyObservation, setDailyObservation] = useState("");
@@ -198,14 +205,24 @@ function ReporteDiarioContent() {
     if (!selectedOpId) return;
     setIsSavingComment(true);
     try {
+      const originalComment =
+        rawOps.find((op) => op.id === selectedOpId)?.comentarioBrecha || "";
+      const isLegacyComment =
+        originalComment !== "" &&
+        !EXONERATION_REASONS.includes(
+          originalComment as (typeof EXONERATION_REASONS)[number],
+        );
+      const valueToSave =
+        selectedReason ?? (isLegacyComment ? originalComment : "");
+
       await updateDoc(doc(db, "operaciones_retiros", selectedOpId), {
-        comentarioBrecha: commentText,
+        comentarioBrecha: valueToSave,
       });
 
       setRawOps((prev) =>
         prev.map((op) =>
           op.id === selectedOpId
-            ? { ...op, comentarioBrecha: commentText }
+            ? { ...op, comentarioBrecha: valueToSave }
             : op,
         ),
       );
@@ -489,6 +506,15 @@ function ReporteDiarioContent() {
     ? format(parseISO(selectedDate), "dd 'de' MMMM, yyyy", { locale: es })
     : "";
 
+  const selectedOpForModal = rawOps.find((op) => op.id === selectedOpId);
+  const legacyComment =
+    selectedOpForModal?.comentarioBrecha &&
+    !EXONERATION_REASONS.includes(
+      selectedOpForModal.comentarioBrecha as (typeof EXONERATION_REASONS)[number],
+    )
+      ? selectedOpForModal.comentarioBrecha
+      : null;
+
   return (
     <>
       {commentModalOpen && (
@@ -508,15 +534,46 @@ function ReporteDiarioContent() {
             </div>
             <div className="p-6">
               <p className="text-sm text-slate-500 mb-3">
-                Explica brevemente por qué este retiro tuvo demora (falla de
-                API, validación de cuenta, etc).
+                Selecciona el motivo de la exoneración de este retiro.
               </p>
-              <textarea
-                className="w-full h-32 p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none resize-none text-sm text-slate-700"
-                placeholder="Motivo de la demora..."
-                value={commentText}
-                onChange={(e) => setCommentText(e.target.value)}
-              />
+              <div className="divide-y divide-slate-100">
+                {EXONERATION_REASONS.map((reason) => {
+                  const isChecked = selectedReason === reason;
+                  const isDisabled = selectedReason !== null && !isChecked;
+                  return (
+                    <div
+                      key={reason}
+                      className="flex items-center justify-between py-2.5"
+                    >
+                      <span
+                        className={cn(
+                          "text-sm text-slate-700",
+                          isDisabled && "opacity-50",
+                        )}
+                      >
+                        {reason}
+                      </span>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="sr-only peer"
+                          checked={isChecked}
+                          disabled={isDisabled}
+                          onChange={(e) =>
+                            setSelectedReason(e.target.checked ? reason : null)
+                          }
+                        />
+                        <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500 peer-disabled:opacity-50 peer-disabled:cursor-not-allowed" />
+                      </label>
+                    </div>
+                  );
+                })}
+              </div>
+              {legacyComment && (
+                <p className="mt-3 text-xs text-slate-500 italic bg-slate-50 border border-slate-200 rounded-lg p-2">
+                  Comentario anterior: &quot;{legacyComment}&quot;
+                </p>
+              )}
               <div className="mt-5 flex justify-end gap-3">
                 <Button
                   variant="ghost"
@@ -1162,7 +1219,14 @@ function ReporteDiarioContent() {
                                   size="sm"
                                   onClick={() => {
                                     setSelectedOpId(op.id);
-                                    setCommentText(op.comentarioBrecha || "");
+                                    const current = op.comentarioBrecha || "";
+                                    setSelectedReason(
+                                      EXONERATION_REASONS.includes(
+                                        current as (typeof EXONERATION_REASONS)[number],
+                                      )
+                                        ? current
+                                        : null,
+                                    );
                                     setCommentModalOpen(true);
                                   }}
                                   className={cn(
