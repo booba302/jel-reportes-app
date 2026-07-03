@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { isExonerated } from "@/lib/utils";
 import { toPng } from "html-to-image";
 import { jsPDF } from "jspdf";
 import { format, parseISO } from "date-fns";
@@ -108,8 +109,10 @@ export default function ExpedienteOperadorPage() {
         );
 
         const snapshotRetiros = await getDocs(qRetiros);
-        const monedasMap: Record<string, { total: number; cumple: number }> =
-          {};
+        const monedasMap: Record<
+          string,
+          { total: number; cumple: number; evaluable: number }
+        > = {};
 
         snapshotRetiros.forEach((docSnap) => {
           const data = docSnap.data();
@@ -117,12 +120,15 @@ export default function ExpedienteOperadorPage() {
           if (data.Operador === operadorNombre) {
             const moneda = data.Moneda || "OTRA";
             if (!monedasMap[moneda]) {
-              monedasMap[moneda] = { total: 0, cumple: 0 };
+              monedasMap[moneda] = { total: 0, cumple: 0, evaluable: 0 };
             }
             monedasMap[moneda].total += 1;
-            // Evaluamos si el campo Cumple es true
-            if (data.Cumple === true) {
-              monedasMap[moneda].cumple += 1;
+            // Excluimos retiros exonerados en la auditoría diaria del cálculo de SLA
+            if (!isExonerated(data.comentarioBrecha)) {
+              monedasMap[moneda].evaluable += 1;
+              if (data.Cumple === true) {
+                monedasMap[moneda].cumple += 1;
+              }
             }
           }
         });
@@ -130,10 +136,13 @@ export default function ExpedienteOperadorPage() {
         // Convertimos el mapa a un array para el gráfico
         const monedasDataReales = Object.keys(monedasMap)
           .map((moneda) => {
-            const { total, cumple } = monedasMap[moneda];
+            const { evaluable, cumple } = monedasMap[moneda];
             return {
               moneda,
-              sla: total > 0 ? Number(((cumple / total) * 100).toFixed(1)) : 0,
+              sla:
+                evaluable > 0
+                  ? Number(((cumple / evaluable) * 100).toFixed(1))
+                  : 0,
             };
           })
           .sort((a, b) => b.sla - a.sla); // Ordenamos de mayor a menor cumplimiento

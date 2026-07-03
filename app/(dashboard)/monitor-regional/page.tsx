@@ -36,7 +36,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { cn } from "@/lib/utils";
+import { cn, isExonerated } from "@/lib/utils";
 import { toast } from "sonner";
 
 export default function MonitorRegionalPage() {
@@ -70,11 +70,12 @@ export default function MonitorRegionalPage() {
 
       const mapaRegiones: Record<
         string,
-        { total: number; cumple: number; tiempoTotal: number }
+        { total: number; cumple: number; tiempoTotal: number; evaluable: number }
       > = {};
       let totalRetirosGlobal = 0;
       let totalCumpleGlobal = 0;
       let tiempoTotalGlobal = 0;
+      let totalEvaluableGlobal = 0;
 
       snapOps.forEach((docItem) => {
         const data = docItem.data();
@@ -84,19 +85,30 @@ export default function MonitorRegionalPage() {
         if (region === "N/A" || !region) return;
 
         if (!mapaRegiones[region]) {
-          mapaRegiones[region] = { total: 0, cumple: 0, tiempoTotal: 0 };
+          mapaRegiones[region] = {
+            total: 0,
+            cumple: 0,
+            tiempoTotal: 0,
+            evaluable: 0,
+          };
         }
 
         const tiempoOp = Number(data.Tiempo) || 0;
         const cumpleSla = data.Cumple === true;
+        const evaluable = !isExonerated(data.comentarioBrecha);
 
         mapaRegiones[region].total++;
-        mapaRegiones[region].tiempoTotal += tiempoOp;
-        if (cumpleSla) mapaRegiones[region].cumple++;
-
         totalRetirosGlobal++;
-        tiempoTotalGlobal += tiempoOp;
-        if (cumpleSla) totalCumpleGlobal++;
+
+        if (evaluable) {
+          mapaRegiones[region].evaluable++;
+          mapaRegiones[region].tiempoTotal += tiempoOp;
+          if (cumpleSla) mapaRegiones[region].cumple++;
+
+          totalEvaluableGlobal++;
+          tiempoTotalGlobal += tiempoOp;
+          if (cumpleSla) totalCumpleGlobal++;
+        }
       });
 
       const arrayRegiones = Object.keys(mapaRegiones)
@@ -105,10 +117,14 @@ export default function MonitorRegionalPage() {
           return {
             region: r,
             volumen: stats.total,
-            sla: Number(((stats.cumple / stats.total) * 100).toFixed(1)),
-            tiempoPromedio: Number(
-              (stats.tiempoTotal / stats.total).toFixed(1),
-            ),
+            sla:
+              stats.evaluable > 0
+                ? Number(((stats.cumple / stats.evaluable) * 100).toFixed(1))
+                : 0,
+            tiempoPromedio:
+              stats.evaluable > 0
+                ? Number((stats.tiempoTotal / stats.evaluable).toFixed(1))
+                : 0,
           };
         })
         .sort((a, b) => b.volumen - a.volumen);
@@ -118,12 +134,16 @@ export default function MonitorRegionalPage() {
       if (totalRetirosGlobal > 0) {
         setMetricasGlobales({
           volumenTotal: totalRetirosGlobal,
-          slaGlobal: Number(
-            ((totalCumpleGlobal / totalRetirosGlobal) * 100).toFixed(1),
-          ),
-          tiempoGlobal: Number(
-            (tiempoTotalGlobal / totalRetirosGlobal).toFixed(1),
-          ),
+          slaGlobal:
+            totalEvaluableGlobal > 0
+              ? Number(
+                  ((totalCumpleGlobal / totalEvaluableGlobal) * 100).toFixed(1),
+                )
+              : 0,
+          tiempoGlobal:
+            totalEvaluableGlobal > 0
+              ? Number((tiempoTotalGlobal / totalEvaluableGlobal).toFixed(1))
+              : 0,
           regionFuerte: arrayRegiones.reduce((prev, current) =>
             prev.sla > current.sla ? prev : current,
           ),

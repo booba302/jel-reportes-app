@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useCurrency } from "../context/CurrencyContext";
+import { isExonerated } from "@/lib/utils";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import type { DateRange } from "react-day-picker";
@@ -169,9 +170,15 @@ export default function DashboardPage() {
         // Estructuras para cálculos
         const currentData: any[] = [];
         const prevData: any[] = [];
-        const dayMap: Record<string, { total: number; sla: number }> = {};
+        const dayMap: Record<
+          string,
+          { total: number; sla: number; evaluable: number }
+        > = {};
         const lvlMap: Record<string, number> = {};
-        const agtMap: Record<string, { total: number; sla: number }> = {};
+        const agtMap: Record<
+          string,
+          { total: number; sla: number; evaluable: number }
+        > = {};
 
         // 3. Procesamiento en Memoria
         snapshot.forEach((doc) => {
@@ -187,18 +194,27 @@ export default function DashboardPage() {
             const cumple = data.Cumple === true;
             const operador = data.Operador || "Desconocido";
             const nivel = data.Nivel || "Estándar";
+            const evaluable = !isExonerated(data.comentarioBrecha);
 
-            if (!dayMap[reportDateStr]) dayMap[reportDateStr] = { total: 0, sla: 0 };
+            if (!dayMap[reportDateStr])
+              dayMap[reportDateStr] = { total: 0, sla: 0, evaluable: 0 };
             dayMap[reportDateStr].total++;
-            if (cumple) dayMap[reportDateStr].sla++;
+            if (evaluable) {
+              dayMap[reportDateStr].evaluable++;
+              if (cumple) dayMap[reportDateStr].sla++;
+            }
 
             if (!lvlMap[nivel]) lvlMap[nivel] = 0;
             lvlMap[nivel]++;
 
             if (operador !== "Autopago") {
-              if (!agtMap[operador]) agtMap[operador] = { total: 0, sla: 0 };
+              if (!agtMap[operador])
+                agtMap[operador] = { total: 0, sla: 0, evaluable: 0 };
               agtMap[operador].total++;
-              if (cumple) agtMap[operador].sla++;
+              if (evaluable) {
+                agtMap[operador].evaluable++;
+                if (cumple) agtMap[operador].sla++;
+              }
             }
           } else if (reportDateStr >= prevStartStr && reportDateStr <= prevEndStr) {
             prevData.push(data);
@@ -211,19 +227,23 @@ export default function DashboardPage() {
             amount = 0,
             slaCount = 0,
             time = 0,
-            autoCount = 0;
+            autoCount = 0,
+            evaluableTx = 0;
           dataset.forEach((d) => {
             tx++;
             amount += (Number(d.Cantidad) || 0) / 100;
-            time += Number(d.Tiempo) || 0;
-            if (d.Cumple) slaCount++;
             if (d.Operador === "Autopago") autoCount++;
+            if (!isExonerated(d.comentarioBrecha)) {
+              evaluableTx++;
+              time += Number(d.Tiempo) || 0;
+              if (d.Cumple) slaCount++;
+            }
           });
           return {
             totalTx: tx,
             totalAmount: amount,
-            slaPct: tx > 0 ? (slaCount / tx) * 100 : 0,
-            avgTime: tx > 0 ? time / tx : 0,
+            slaPct: evaluableTx > 0 ? (slaCount / evaluableTx) * 100 : 0,
+            avgTime: evaluableTx > 0 ? time / evaluableTx : 0,
             autoPct: tx > 0 ? (autoCount / tx) * 100 : 0,
           };
         };
@@ -255,7 +275,10 @@ export default function DashboardPage() {
             .map((date) => ({
               fecha: date.substring(5),
               volumen: dayMap[date].total,
-              slaPct: Math.round((dayMap[date].sla / dayMap[date].total) * 100),
+              slaPct:
+                dayMap[date].evaluable > 0
+                  ? Math.round((dayMap[date].sla / dayMap[date].evaluable) * 100)
+                  : 0,
             })),
         );
         setLevelData(
@@ -268,7 +291,11 @@ export default function DashboardPage() {
             .map((agt) => ({
               nombre: agt,
               total: agtMap[agt].total,
-              slaPct: ((agtMap[agt].sla / agtMap[agt].total) * 100).toFixed(1),
+              slaPct: (
+                agtMap[agt].evaluable > 0
+                  ? (agtMap[agt].sla / agtMap[agt].evaluable) * 100
+                  : 0
+              ).toFixed(1),
             }))
             .sort((a, b) => b.total - a.total),
         );
