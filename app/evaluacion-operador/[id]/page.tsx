@@ -182,35 +182,74 @@ export default function VisorExpedienteOperador() {
 
   const handleExportPDF = () => {
     setIsExportingPDF(true);
-    toast.info("Ajustando documento...");
+    toast.info("Ajustando dimensiones...", {
+      description: "Preparando captura de alta calidad.",
+    });
+
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
 
-    setTimeout(async () => {
+    const viewportMeta = document.querySelector('meta[name="viewport"]');
+    const originalViewport = viewportMeta?.getAttribute("content") || "";
+    if (viewportMeta) {
+      viewportMeta.setAttribute("content", "width=1200, initial-scale=1");
+    }
+
+    requestAnimationFrame(() => requestAnimationFrame(async () => {
       const element = document.getElementById("expediente-readonly");
       if (!element) {
         setIsExportingPDF(false);
         return;
       }
+
       try {
         const dataUrl = await toPng(element, {
           quality: 1,
           backgroundColor: "#f8fafc",
           pixelRatio: 2,
+          width: 1200,
+          height: element.scrollHeight,
+          style: { width: "1200px" },
+          filter: (node) => {
+            if (
+              node instanceof HTMLElement &&
+              node.dataset.html2canvasIgnore === "true"
+            )
+              return false;
+            return true;
+          },
         });
+
         const pdf = new jsPDF("p", "mm", "a4");
         const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+
         const imgProps = pdf.getImageProperties(dataUrl);
         const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
 
-        pdf.addImage(dataUrl, "PNG", 0, 0, pdfWidth, imgHeight);
+        let heightLeft = imgHeight;
+        let position = 0;
+
+        pdf.addImage(dataUrl, "PNG", 0, position, pdfWidth, imgHeight);
+        heightLeft -= pageHeight;
+
+        while (heightLeft > 0) {
+          position = heightLeft - imgHeight;
+          pdf.addPage();
+          pdf.addImage(dataUrl, "PNG", 0, position, pdfWidth, imgHeight);
+          heightLeft -= pageHeight;
+        }
+
         pdf.save(`Mi_Evaluacion_${mesActual}.pdf`);
         toast.success("PDF exportado exitosamente");
       } catch (error) {
-        toast.error("Error al exportar el documento.");
+        console.error("Error generando PDF:", error);
+        toast.error("Hubo un problema al exportar el documento.");
       } finally {
+        if (viewportMeta)
+          viewportMeta.setAttribute("content", originalViewport);
         setIsExportingPDF(false);
       }
-    }, 800);
+    }));
   };
 
   if (isLoading) {
