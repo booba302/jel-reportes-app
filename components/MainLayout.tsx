@@ -29,13 +29,13 @@ function CurrencySelector() {
       normalizedRol.includes("internacional") ||
       normalizedRol.includes("inter")
     )
-      return ["GLOBAL", "PEN", "CLP", "MXN", "USD"];
+      return ["PEN", "CLP", "MXN", "USD"];
 
     // Si llega hasta aquí, es porque es 100% "nacional" y no "internacional"
     if (normalizedRol.includes("nacional")) return ["VES"];
 
-    // Fallback por defecto
-    return ["GLOBAL", "PEN", "CLP", "MXN", "USD"];
+    // Fallback por defecto (sin GLOBAL, que es exclusivo de admin)
+    return ["PEN", "CLP", "MXN", "USD"];
   }, [rol]);
 
   useEffect(() => {
