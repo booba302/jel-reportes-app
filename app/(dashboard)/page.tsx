@@ -57,8 +57,12 @@ interface Metrics {
   totalAmount: number;
   slaPct: number;
   avgTime: number;
-  vipAvgTime: number;
   autoPct: number;
+  vipTotalTx: number;
+  vipTotalAmount: number;
+  vipSlaPct: number;
+  vipAvgTime: number;
+  vipAutoPct: number;
 }
 interface PeriodComparison {
   current: Metrics;
@@ -67,8 +71,11 @@ interface PeriodComparison {
     totalAmount: number;
     slaPct: number;
     avgTime: number;
-    vipAvgTime: number;
     autoPct: number;
+    vipTotalAmount: number;
+    vipSlaPct: number;
+    vipAvgTime: number;
+    vipAutoPct: number;
   };
 }
 
@@ -81,7 +88,7 @@ const COLORS = [
   "#06b6d4",
 ];
 
-const VIP_LEVELS = ["2", "3", "4"];
+const VIP_LEVELS = ["Nivel 2", "Nivel 3", "Nivel 4"];
 
 export default function DashboardPage() {
   const { currency } = useCurrency();
@@ -234,19 +241,32 @@ export default function DashboardPage() {
             time = 0,
             autoCount = 0,
             evaluableTx = 0,
-            vipTime = 0,
-            vipEvaluableTx = 0;
+            vipTx = 0,
+            vipAmount = 0,
+            vipAutoCount = 0,
+            vipEvaluableTx = 0,
+            vipSlaCount = 0,
+            vipTime = 0;
           dataset.forEach((d) => {
             tx++;
             amount += (Number(d.Cantidad) || 0) / 100;
-            if (d.Operador === "Autopago") autoCount++;
-            if (!isExonerated(d.comentarioBrecha)) {
+            const isAuto = d.Operador === "Autopago";
+            if (isAuto) autoCount++;
+            const evaluable = !isExonerated(d.comentarioBrecha);
+            if (evaluable) {
               evaluableTx++;
               time += Number(d.Tiempo) || 0;
               if (d.Cumple) slaCount++;
-              if (VIP_LEVELS.includes(String(d.Nivel).trim())) {
+            }
+
+            if (VIP_LEVELS.includes(String(d.Nivel).trim())) {
+              vipTx++;
+              vipAmount += (Number(d.Cantidad) || 0) / 100;
+              if (isAuto) vipAutoCount++;
+              if (evaluable) {
                 vipEvaluableTx++;
                 vipTime += Number(d.Tiempo) || 0;
+                if (d.Cumple) vipSlaCount++;
               }
             }
           });
@@ -255,8 +275,12 @@ export default function DashboardPage() {
             totalAmount: amount,
             slaPct: evaluableTx > 0 ? (slaCount / evaluableTx) * 100 : 0,
             avgTime: evaluableTx > 0 ? time / evaluableTx : 0,
-            vipAvgTime: vipEvaluableTx > 0 ? vipTime / vipEvaluableTx : 0,
             autoPct: tx > 0 ? (autoCount / tx) * 100 : 0,
+            vipTotalTx: vipTx,
+            vipTotalAmount: vipAmount,
+            vipSlaPct: vipEvaluableTx > 0 ? (vipSlaCount / vipEvaluableTx) * 100 : 0,
+            vipAvgTime: vipEvaluableTx > 0 ? vipTime / vipEvaluableTx : 0,
+            vipAutoPct: vipTx > 0 ? (vipAutoCount / vipTx) * 100 : 0,
           };
         };
 
@@ -276,8 +300,11 @@ export default function DashboardPage() {
             totalAmount: calcTrend(curr.totalAmount, prev.totalAmount),
             slaPct: curr.slaPct - prev.slaPct, // Puntos porcentuales directos
             avgTime: calcTrend(curr.avgTime, prev.avgTime),
-            vipAvgTime: calcTrend(curr.vipAvgTime, prev.vipAvgTime),
             autoPct: curr.autoPct - prev.autoPct,
+            vipTotalAmount: calcTrend(curr.vipTotalAmount, prev.vipTotalAmount),
+            vipSlaPct: curr.vipSlaPct - prev.vipSlaPct,
+            vipAvgTime: calcTrend(curr.vipAvgTime, prev.vipAvgTime),
+            vipAutoPct: curr.vipAutoPct - prev.vipAutoPct,
           },
         });
 
@@ -483,12 +510,22 @@ export default function DashboardPage() {
               <CardContent>
                 <div className="flex items-end justify-between">
                   <div className="text-3xl font-bold text-slate-800">
-                    {metrics.current.slaPct.toFixed(1)}%
+                    {(showVipOnly
+                      ? metrics.current.vipSlaPct
+                      : metrics.current.slaPct
+                    ).toFixed(1)}
+                    %
                   </div>
-                  {renderTrend(metrics.trend.slaPct, false, true)}
+                  {renderTrend(
+                    showVipOnly ? metrics.trend.vipSlaPct : metrics.trend.slaPct,
+                    false,
+                    true,
+                  )}
                 </div>
                 <p className="text-xs text-slate-500 mt-2">
-                  Retiros bajo 25 minutos
+                  {showVipOnly
+                    ? "Retiros VIP bajo 25 minutos"
+                    : "Retiros bajo 25 minutos"}
                 </p>
               </CardContent>
             </Card>
@@ -542,17 +579,34 @@ export default function DashboardPage() {
                 <div className="flex items-end justify-between">
                   <div
                     className="text-2xl font-bold text-slate-800 truncate"
-                    title={formatMoney(metrics.current.totalAmount, currency)}
+                    title={formatMoney(
+                      showVipOnly
+                        ? metrics.current.vipTotalAmount
+                        : metrics.current.totalAmount,
+                      currency,
+                    )}
                   >
                     {(currency as string) === "GLOBAL"
                       ? "Múltiple"
-                      : formatMoney(metrics.current.totalAmount, currency)}
+                      : formatMoney(
+                          showVipOnly
+                            ? metrics.current.vipTotalAmount
+                            : metrics.current.totalAmount,
+                          currency,
+                        )}
                   </div>
-                  {renderTrend(metrics.trend.totalAmount)}
+                  {renderTrend(
+                    showVipOnly
+                      ? metrics.trend.vipTotalAmount
+                      : metrics.trend.totalAmount,
+                  )}
                 </div>
                 <p className="text-xs text-slate-500 mt-2">
-                  {metrics.current.totalTx.toLocaleString("es-CL")}{" "}
-                  transacciones en total
+                  {(showVipOnly
+                    ? metrics.current.vipTotalTx
+                    : metrics.current.totalTx
+                  ).toLocaleString("es-CL")}{" "}
+                  {showVipOnly ? "transacciones VIP" : "transacciones en total"}
                 </p>
               </CardContent>
             </Card>
@@ -569,12 +623,24 @@ export default function DashboardPage() {
               <CardContent>
                 <div className="flex items-end justify-between">
                   <div className="text-3xl font-bold text-slate-800">
-                    {metrics.current.autoPct.toFixed(1)}%
+                    {(showVipOnly
+                      ? metrics.current.vipAutoPct
+                      : metrics.current.autoPct
+                    ).toFixed(1)}
+                    %
                   </div>
-                  {renderTrend(metrics.trend.autoPct, false, true)}
+                  {renderTrend(
+                    showVipOnly
+                      ? metrics.trend.vipAutoPct
+                      : metrics.trend.autoPct,
+                    false,
+                    true,
+                  )}
                 </div>
                 <p className="text-xs text-slate-500 mt-2">
-                  Resuelto por Autopago
+                  {showVipOnly
+                    ? "Resuelto por Autopago (VIP)"
+                    : "Resuelto por Autopago"}
                 </p>
               </CardContent>
             </Card>
