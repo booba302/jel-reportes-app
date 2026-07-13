@@ -57,6 +57,7 @@ interface Metrics {
   totalAmount: number;
   slaPct: number;
   avgTime: number;
+  vipAvgTime: number;
   autoPct: number;
 }
 interface PeriodComparison {
@@ -66,6 +67,7 @@ interface PeriodComparison {
     totalAmount: number;
     slaPct: number;
     avgTime: number;
+    vipAvgTime: number;
     autoPct: number;
   };
 }
@@ -79,6 +81,8 @@ const COLORS = [
   "#06b6d4",
 ];
 
+const VIP_LEVELS = ["2", "3", "4"];
+
 export default function DashboardPage() {
   const { currency } = useCurrency();
   const [dateFilter, setDateFilter] = useState("current_month");
@@ -86,6 +90,7 @@ export default function DashboardPage() {
     undefined,
   );
   const [isLoading, setIsLoading] = useState(true);
+  const [showVipOnly, setShowVipOnly] = useState(false);
 
   const [metrics, setMetrics] = useState<PeriodComparison | null>(null);
   const [dailyData, setDailyData] = useState<any[]>([]);
@@ -228,7 +233,9 @@ export default function DashboardPage() {
             slaCount = 0,
             time = 0,
             autoCount = 0,
-            evaluableTx = 0;
+            evaluableTx = 0,
+            vipTime = 0,
+            vipEvaluableTx = 0;
           dataset.forEach((d) => {
             tx++;
             amount += (Number(d.Cantidad) || 0) / 100;
@@ -237,6 +244,10 @@ export default function DashboardPage() {
               evaluableTx++;
               time += Number(d.Tiempo) || 0;
               if (d.Cumple) slaCount++;
+              if (VIP_LEVELS.includes(String(d.Nivel).trim())) {
+                vipEvaluableTx++;
+                vipTime += Number(d.Tiempo) || 0;
+              }
             }
           });
           return {
@@ -244,6 +255,7 @@ export default function DashboardPage() {
             totalAmount: amount,
             slaPct: evaluableTx > 0 ? (slaCount / evaluableTx) * 100 : 0,
             avgTime: evaluableTx > 0 ? time / evaluableTx : 0,
+            vipAvgTime: vipEvaluableTx > 0 ? vipTime / vipEvaluableTx : 0,
             autoPct: tx > 0 ? (autoCount / tx) * 100 : 0,
           };
         };
@@ -264,6 +276,7 @@ export default function DashboardPage() {
             totalAmount: calcTrend(curr.totalAmount, prev.totalAmount),
             slaPct: curr.slaPct - prev.slaPct, // Puntos porcentuales directos
             avgTime: calcTrend(curr.avgTime, prev.avgTime),
+            vipAvgTime: calcTrend(curr.vipAvgTime, prev.vipAvgTime),
             autoPct: curr.autoPct - prev.autoPct,
           },
         });
@@ -379,47 +392,64 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
-          <CalendarRange className="w-4 h-4 text-slate-500" />
-          <Select value={dateFilter} onValueChange={setDateFilter}>
-            <SelectTrigger className="w-[180px] h-9 bg-white border-slate-300 text-sm font-medium">
-              <SelectValue placeholder="Rango de tiempo" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="current_month">Mes Actual</SelectItem>
-              <SelectItem value="last_month">Mes Anterior</SelectItem>
-              <SelectItem value="last_3_months">Últimos 3 Meses</SelectItem>
-              <SelectItem value="all_time">Histórico Completo</SelectItem>
-              <SelectItem value="custom">Rango Personalizado</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+          <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+            <CalendarRange className="w-4 h-4 text-slate-500" />
+            <Select value={dateFilter} onValueChange={setDateFilter}>
+              <SelectTrigger className="w-[180px] h-9 bg-white border-slate-300 text-sm font-medium">
+                <SelectValue placeholder="Rango de tiempo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="current_month">Mes Actual</SelectItem>
+                <SelectItem value="last_month">Mes Anterior</SelectItem>
+                <SelectItem value="last_3_months">Últimos 3 Meses</SelectItem>
+                <SelectItem value="all_time">Histórico Completo</SelectItem>
+                <SelectItem value="custom">Rango Personalizado</SelectItem>
+              </SelectContent>
+            </Select>
 
-          {dateFilter === "custom" && (
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="h-9 justify-start text-left font-normal bg-white border-slate-300 text-sm"
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {customRange?.from && customRange?.to ? (
-                    `${format(customRange.from, "dd MMM", { locale: es })} – ${format(customRange.to, "dd MMM yyyy", { locale: es })}`
-                  ) : (
-                    <span>Selecciona un rango</span>
-                  )}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="end">
-                <Calendar
-                  mode="range"
-                  selected={customRange}
-                  onSelect={setCustomRange}
-                  numberOfMonths={2}
-                  locale={es}
-                />
-              </PopoverContent>
-            </Popover>
-          )}
+            {dateFilter === "custom" && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="h-9 justify-start text-left font-normal bg-white border-slate-300 text-sm"
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {customRange?.from && customRange?.to ? (
+                      `${format(customRange.from, "dd MMM", { locale: es })} – ${format(customRange.to, "dd MMM yyyy", { locale: es })}`
+                    ) : (
+                      <span>Selecciona un rango</span>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="end">
+                  <Calendar
+                    mode="range"
+                    selected={customRange}
+                    onSelect={setCustomRange}
+                    numberOfMonths={2}
+                    locale={es}
+                  />
+                </PopoverContent>
+              </Popover>
+            )}
+          </div>
+
+          <label className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 cursor-pointer select-none">
+            <span className="text-sm font-medium text-slate-600">
+              Solo VIP
+            </span>
+            <div className="relative inline-flex items-center">
+              <input
+                type="checkbox"
+                className="sr-only peer"
+                checked={showVipOnly}
+                onChange={(e) => setShowVipOnly(e.target.checked)}
+              />
+              <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500" />
+            </div>
+          </label>
         </div>
       </div>
 
@@ -475,16 +505,26 @@ export default function DashboardPage() {
               <CardContent>
                 <div className="flex items-end justify-between">
                   <div className="text-3xl font-bold text-slate-800">
-                    {metrics.current.avgTime.toFixed(1)}{" "}
+                    {(showVipOnly
+                      ? metrics.current.vipAvgTime
+                      : metrics.current.avgTime
+                    ).toFixed(1)}{" "}
                     <span className="text-lg font-medium text-slate-500">
                       min
                     </span>
                   </div>
                   {/* reverseColors = true porque un aumento en tiempo es malo (Rojo) */}
-                  {renderTrend(metrics.trend.avgTime, true)}
+                  {renderTrend(
+                    showVipOnly
+                      ? metrics.trend.vipAvgTime
+                      : metrics.trend.avgTime,
+                    true,
+                  )}
                 </div>
                 <p className="text-xs text-slate-500 mt-2">
-                  Tiempo general de resolución
+                  {showVipOnly
+                    ? "Niveles VIP (2, 3, 4)"
+                    : "Tiempo general de resolución"}
                 </p>
               </CardContent>
             </Card>
