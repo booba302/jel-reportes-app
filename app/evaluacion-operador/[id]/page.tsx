@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
+import { cn, isExonerated } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   BarChart,
@@ -115,26 +115,35 @@ export default function VisorExpedienteOperador() {
         );
 
         const snapshotRetiros = await getDocs(qRetiros);
-        const monedasMap: Record<string, { total: number; cumple: number }> =
-          {};
+        const monedasMap: Record<
+          string,
+          { total: number; cumple: number; evaluable: number }
+        > = {};
 
         snapshotRetiros.forEach((docSnap) => {
           const data = docSnap.data();
           if (data.Operador === opNombre) {
             const moneda = data.Moneda || "OTRA";
             if (!monedasMap[moneda])
-              monedasMap[moneda] = { total: 0, cumple: 0 };
+              monedasMap[moneda] = { total: 0, cumple: 0, evaluable: 0 };
             monedasMap[moneda].total += 1;
-            if (data.Cumple === true) monedasMap[moneda].cumple += 1;
+            // Excluimos retiros exonerados del cálculo de SLA (mismo criterio que el expediente)
+            if (!isExonerated(data.comentarioBrecha)) {
+              monedasMap[moneda].evaluable += 1;
+              if (data.Cumple === true) monedasMap[moneda].cumple += 1;
+            }
           }
         });
 
         const monedasDataReales = Object.keys(monedasMap)
           .map((moneda) => {
-            const { total, cumple } = monedasMap[moneda];
+            const { evaluable, cumple } = monedasMap[moneda];
             return {
               moneda,
-              sla: total > 0 ? Number(((cumple / total) * 100).toFixed(1)) : 0,
+              sla:
+                evaluable > 0
+                  ? Number(((cumple / evaluable) * 100).toFixed(1))
+                  : 0,
             };
           })
           .sort((a, b) => b.sla - a.sla);
