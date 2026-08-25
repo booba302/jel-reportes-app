@@ -92,11 +92,11 @@ const VIP_LEVELS = ["Nivel 2", "Nivel 3", "Nivel 4"];
 
 export default function DashboardPage() {
   const { currency } = useCurrency();
-  const [dateFilter, setDateFilter] = useState("current_month");
+  const [dateFilter, setDateFilter] = useState<string | null>(null);
   const [customRange, setCustomRange] = useState<DateRange | undefined>(
     undefined,
   );
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [showVipOnly, setShowVipOnly] = useState(false);
 
   const [metrics, setMetrics] = useState<PeriodComparison | null>(null);
@@ -106,7 +106,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const fetchDashboardData = async () => {
-      if (!currency) return;
+      if (!currency || !dateFilter) return;
       setIsLoading(true);
 
       try {
@@ -422,9 +422,12 @@ export default function DashboardPage() {
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
           <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
             <CalendarRange className="w-4 h-4 text-slate-500" />
-            <Select value={dateFilter} onValueChange={setDateFilter}>
+            <Select
+              value={dateFilter ?? undefined}
+              onValueChange={setDateFilter}
+            >
               <SelectTrigger className="w-[180px] h-9 bg-white border-slate-300 text-sm font-medium">
-                <SelectValue placeholder="Rango de tiempo" />
+                <SelectValue placeholder="Selecciona un rango" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="current_month">Mes Actual</SelectItem>
@@ -480,7 +483,14 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {isLoading ? (
+      {!dateFilter ? (
+        <div className="flex flex-col justify-center items-center h-64 bg-slate-50 rounded-xl border border-dashed border-slate-300">
+          <CalendarIcon className="w-10 h-10 text-slate-400 mb-2" />
+          <p className="text-slate-500 font-medium">
+            Selecciona un rango de fechas para cargar los datos.
+          </p>
+        </div>
+      ) : isLoading ? (
         <div className="flex justify-center items-center h-64 bg-white rounded-xl border shadow-sm">
           <Loader2 className="w-10 h-10 animate-spin text-primary" />
           <span className="ml-3 text-slate-500 font-medium">
