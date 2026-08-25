@@ -83,7 +83,14 @@ export default function MainLayout({
             <Menu className="w-6 h-6" />
           </button>
 
-          <div className="lg:hidden font-bold text-slate-900">Play</div>
+          <div className="lg:hidden flex items-center gap-2">
+            <img
+              src="/logo.png"
+              alt="Logo"
+              className="h-7 w-auto object-contain"
+            />
+            <span className="font-bold text-slate-900">PayoutMetrics</span>
+          </div>
 
           <div className="flex items-center gap-4 ml-auto">
             <CurrencySelector />
