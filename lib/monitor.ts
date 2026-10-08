@@ -22,17 +22,45 @@ export const PAIS_MONEDA: Record<Moneda, string> = {
 /** Supuesto de la lectura de la franja crítica: se recuperan 6 de cada 10 brechas. */
 export const RECUPERACION_ESTIMADA = 0.6;
 
-/** Retiro reducido a lo que usa el monitor (también es lo que se guarda en caché). */
+/** Grupo de retiros iguales (lo que manda la API y se guarda en caché). */
 export type OpMonitor = {
   dia: number; // día del mes del reporte
-  hora: number | null; // hora de la operación (0–23)
+  hora: number | null; // hora de la operación (0–23); solo viene en brechas
   moneda: Moneda;
   autopago: boolean;
   vip: boolean;
   cumple: boolean;
-  tiempo: number;
+  tiempo: number; // suma de minutos del grupo
   exonerado: boolean;
+  n: number; // cantidad de retiros del grupo
 };
+
+/** Forma compacta de una celda para la caché de sessionStorage. */
+export type Tupla = [number, number, number, 0 | 1, 0 | 1, 0 | 1, number, 0 | 1, number];
+
+export const aTupla = (o: OpMonitor): Tupla => [
+  o.dia,
+  o.hora ?? -1,
+  MONEDAS.indexOf(o.moneda),
+  o.autopago ? 1 : 0,
+  o.vip ? 1 : 0,
+  o.cumple ? 1 : 0,
+  o.tiempo,
+  o.exonerado ? 1 : 0,
+  o.n,
+];
+
+export const deTupla = (t: Tupla): OpMonitor => ({
+  dia: t[0],
+  hora: t[1] < 0 ? null : t[1],
+  moneda: MONEDAS[t[2]],
+  autopago: t[3] === 1,
+  vip: t[4] === 1,
+  cumple: t[5] === 1,
+  tiempo: t[6],
+  exonerado: t[7] === 1,
+  n: t[8],
+});
 
 export type Seg = {
   total: number;
@@ -64,21 +92,21 @@ export const slaDe = (s: Seg) => (s.evaluables ? (s.cumplidos / s.evaluables) * 
 export const tiempoDe = (s: Seg) => (s.evaluables ? s.tiempoTotal / s.evaluables : null);
 
 function sumarEn(a: Seg, op: OpMonitor) {
-  a.total++;
+  a.total += op.n;
   if (op.autopago) {
-    a.autopago++;
+    a.autopago += op.n;
     return;
   }
   if (op.exonerado) {
-    a.exonerados++;
+    a.exonerados += op.n;
     return;
   }
-  a.evaluables++;
+  a.evaluables += op.n;
   a.tiempoTotal += op.tiempo;
-  if (op.cumple) a.cumplidos++;
+  if (op.cumple) a.cumplidos += op.n;
   else {
-    a.brechas++;
-    if (op.hora != null && op.hora >= 0 && op.hora < 24) a.brechasHora[op.hora]++;
+    a.brechas += op.n;
+    if (op.hora != null && op.hora >= 0 && op.hora < 24) a.brechasHora[op.hora] += op.n;
   }
 }
 
