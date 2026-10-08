@@ -1,23 +1,18 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  UploadCloud,
-  FolderKanban,
-  BarChart4,
-  ChevronDown,
-  ChevronRight,
-  X,
-  CheckSquare,
-  Trophy,
-  LogOut,
-  User as UserIcon,
-  ShieldCheck,
-  Globe,
+  Home,
+  CalendarCheck,
+  SquareCheck,
   Activity,
-  Database,
+  Globe,
+  Trophy,
+  Users,
+  LogOut,
+  X,
   LucideIcon,
 } from "lucide-react";
 import {
@@ -31,88 +26,65 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { cn } from "@/lib/utils";
+import { cn, getInitials } from "@/lib/utils";
 import { useAuth } from "@/app/context/AuthContext";
+import { parseUserRole } from "@/lib/roles";
 
 type MenuItem = {
   label: string;
   icon: LucideIcon;
   href: string;
-  color: string;
   requireAdmin?: boolean;
   allowedRoles?: string[];
 };
 
 type MenuGroup = {
   id: string;
-  title: string;
-  icon: LucideIcon;
+  title: string | null;
   items: MenuItem[];
   allowedRoles?: string[];
 };
 
 const menuGroups: MenuGroup[] = [
   {
+    id: "inicio",
+    title: null,
+    items: [{ label: "Inicio", icon: Home, href: "/" }],
+  },
+  {
     id: "operaciones",
-    title: "Gestión Operativa",
-    icon: Database,
+    title: "Gestión operativa",
     items: [
+      { label: "Reportes", icon: CalendarCheck, href: "/reportes" },
       {
-        label: "Cargar Reportes",
-        icon: UploadCloud,
-        href: "/cargar-reportes",
-        color: "text-blue-400",
-      },
-      {
-        label: "Gestor de Reportes",
-        icon: FolderKanban,
-        href: "/gestor-reportes",
-        color: "text-amber-400",
-      },
-      {
-        label: "Evaluación Diaria",
-        icon: CheckSquare,
+        label: "Evaluación diaria",
+        icon: SquareCheck,
         href: "/evaluacion-diaria",
-        color: "text-emerald-400",
       },
     ],
   },
   {
     id: "analitica",
-    title: "Analítica y Desempeño",
-    icon: BarChart4,
+    title: "Analítica y desempeño",
     items: [
+      { label: "Auditoría diaria", icon: Activity, href: "/auditoria-diaria" },
       {
-        label: "Auditoría Diaria",
-        icon: Activity,
-        href: "/auditoria-diaria",
-        color: "text-sky-400",
-      },
-      {
-        label: "Monitor Regional",
+        label: "Monitor regional",
         icon: Globe,
         href: "/monitor-regional",
-        color: "text-indigo-400",
         requireAdmin: true,
       },
-      {
-        label: "Cierre Mensual",
-        icon: Trophy,
-        href: "/cierre-mensual",
-        color: "text-amber-500",
-      },
+      { label: "Cierre mensual", icon: Trophy, href: "/cierre-mensual" },
     ],
   },
   {
     id: "admin",
     title: "Administración",
-    icon: ShieldCheck,
     items: [
       {
-        label: "Gestión de Usuarios",
-        icon: UserIcon,
+        label: "Gestión de usuarios",
+        icon: Users,
         href: "/gestor-usuarios",
-        color: "text-rose-400",
         requireAdmin: true,
       },
     ],
@@ -130,8 +102,7 @@ export function Sidebar({
   const { userData, logout } = useAuth();
 
   const userRole = userData?.rol?.toLowerCase() || "";
-  const isAdmin =
-    userRole.includes("admin") || userData?.rol === "Administrador";
+  const { isAdmin } = parseUserRole(userData?.rol);
 
   const hasAccess = (entity: MenuItem | MenuGroup) => {
     if (isAdmin) return true;
@@ -145,19 +116,8 @@ export function Sidebar({
     return true;
   };
 
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
-    {
-      operaciones: true,
-      analitica: true,
-      admin: true,
-    },
-  );
-
-  const toggleGroup = (groupId: string) => {
-    setExpandedGroups((prev) => ({
-      ...prev,
-      [groupId]: !prev[groupId],
-    }));
+  const closeOnMobile = () => {
+    if (window.innerWidth < 1024) setIsOpen(false);
   };
 
   useEffect(() => {
@@ -171,160 +131,117 @@ export function Sidebar({
     };
   }, [isOpen]);
 
-  const MobileOverlay = () => (
-    <div
-      className={cn(
-        "fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 lg:hidden transition-opacity duration-300",
-        isOpen ? "opacity-100" : "opacity-0 pointer-events-none",
-      )}
-      onClick={() => setIsOpen(false)}
-    />
-  );
-
   return (
     <>
-      <MobileOverlay />
-
+      {/* Overlay móvil */}
       <div
         className={cn(
-          "fixed top-0 left-0 h-screen w-72 bg-slate-900 border-r border-slate-800 text-slate-300 flex flex-col z-50 transition-transform duration-300 ease-in-out lg:translate-x-0",
+          "fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300 lg:hidden",
+          isOpen ? "opacity-100" : "pointer-events-none opacity-0",
+        )}
+        onClick={() => setIsOpen(false)}
+      />
+
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex w-[248px] flex-col gap-5 border-r border-sidebar-border bg-sidebar px-3 py-4 text-sidebar-foreground transition-transform duration-300 ease-in-out lg:translate-x-0",
           isOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
-        <Link
-          href="/"
-          onClick={() => window.innerWidth < 1024 && setIsOpen(false)}
-          className="h-16 flex items-center justify-between px-6 bg-slate-950/50 border-b border-slate-800 shrink-0 hover:bg-slate-900/80 transition-colors group"
-        >
-          <div className="flex items-center gap-3">
-            <div className="bg-slate-900 p-1.5 rounded-lg h-9 w-11 flex items-center justify-center border border-slate-700 shadow-sm group-hover:scale-105 transition-transform">
-              <img
-                src="/logo.png"
-                alt="Logo"
-                className="h-full w-auto object-contain"
-                onError={(e) => {
-                  e.currentTarget.style.display = "none";
-                  e.currentTarget.parentElement!.innerHTML =
-                    '<span class="text-white font-bold text-base">R</span>';
-                }}
-              />
-            </div>
-            <span className="font-bold text-xl text-white tracking-tight">
+        <div className="flex items-center justify-between">
+          <Link
+            href="/"
+            onClick={closeOnMobile}
+            className="flex items-center gap-2.5 px-2 py-1.5"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.png" alt="" className="h-auto w-8" />
+            <span className="text-base font-bold tracking-tight">
               PayoutMetrics
             </span>
-          </div>
+          </Link>
           <button
-            onClick={(e) => {
-              e.preventDefault();
-              setIsOpen(false);
-            }}
-            className="p-2 -mr-2 text-slate-400 hover:text-white lg:hidden"
+            type="button"
+            onClick={() => setIsOpen(false)}
+            aria-label="Cerrar menú"
+            className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground lg:hidden"
           >
-            <X className="w-5 h-5" />
+            <X className="size-4" />
           </button>
-        </Link>
+        </div>
 
-        <div className="flex-1 overflow-y-auto py-6 px-4 space-y-6 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
+        <nav className="flex flex-1 flex-col gap-[18px] overflow-y-auto">
           {menuGroups.map((group) => {
             if (!hasAccess(group)) return null;
 
-            const hasVisibleItems = group.items.some((item) => hasAccess(item));
-            if (!hasVisibleItems) return null;
-
-            const isExpanded = expandedGroups[group.id];
+            const visibleItems = group.items.filter((item) => hasAccess(item));
+            if (visibleItems.length === 0) return null;
 
             return (
-              <div key={group.id} className="space-y-1">
-                <button
-                  onClick={() => toggleGroup(group.id)}
-                  className="w-full flex items-center justify-between px-2 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider hover:text-slate-300 transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <group.icon className="w-4 h-4" />
+              <div key={group.id} className="flex flex-col gap-0.5">
+                {group.title && (
+                  <span className="px-2.5 pb-1.5 text-xs font-medium text-muted-foreground">
                     {group.title}
-                  </div>
-                  {isExpanded ? (
-                    <ChevronDown className="w-4 h-4" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4" />
-                  )}
-                </button>
+                  </span>
+                )}
+                {visibleItems.map((item) => {
+                  const isActive = pathname === item.href;
 
-                <div
-                  className={cn(
-                    "space-y-1 overflow-hidden transition-all duration-300 ease-in-out",
-                    isExpanded
-                      ? "max-h-96 opacity-100 mt-1"
-                      : "max-h-0 opacity-0",
-                  )}
-                >
-                  {group.items.map((item) => {
-                    if (!hasAccess(item)) return null;
-
-                    const isActive = pathname === item.href;
-
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        aria-current={isActive ? "page" : undefined}
-                        onClick={() =>
-                          window.innerWidth < 1024 && setIsOpen(false)
-                        }
-                        className={cn(
-                          "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group",
-                          isActive
-                            ? "bg-primary/10 text-white border-l-2 border-primary"
-                            : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200 border-l-2 border-transparent",
-                        )}
-                      >
-                        <item.icon
-                          className={cn(
-                            "w-5 h-5 transition-transform duration-200 group-hover:scale-110",
-                            item.color,
-                          )}
-                        />
-                        {item.label}
-                        {isActive && (
-                          <ChevronRight className="ml-auto w-4 h-4 text-primary shrink-0" aria-hidden="true" />
-                        )}
-                      </Link>
-                    );
-                  })}
-                </div>
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      aria-current={isActive ? "page" : undefined}
+                      onClick={closeOnMobile}
+                      className={cn(
+                        "flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm transition-colors",
+                        isActive
+                          ? "bg-sidebar-accent font-semibold text-foreground shadow-[0_0_0_1px_var(--border)]"
+                          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                      )}
+                    >
+                      <item.icon className="size-4 shrink-0" />
+                      <span className="truncate">{item.label}</span>
+                      {item.requireAdmin && (
+                        <span className="ml-auto rounded-md border border-input px-1.5 text-[11px] font-medium text-muted-foreground">
+                          Admin
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
               </div>
             );
           })}
-        </div>
+        </nav>
 
-        <div className="p-4 border-t border-slate-800 bg-slate-900 shrink-0 flex items-center justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0">
-              <UserIcon className="w-5 h-5 text-slate-400" />
-            </div>
-            <div className="flex flex-col truncate">
-              <span className="text-sm font-medium text-white truncate">
-                {userData?.nombre || "Cargando..."}
-              </span>
-              <span className="text-xs text-slate-500 truncate capitalize">
-                {userData?.rol || "Usuario"}
-              </span>
-            </div>
-          </div>
+        <div className="flex items-center gap-2.5 rounded-[10px] border border-border bg-card p-2.5">
+          <span className="flex size-[34px] shrink-0 items-center justify-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand">
+            {getInitials(userData?.nombre)}
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col leading-tight">
+            <span className="truncate text-[13px] font-semibold">
+              {userData?.nombre ?? "Cargando..."}
+            </span>
+            <span className="truncate text-xs capitalize text-muted-foreground">
+              {userData?.rol ?? "Usuario"}
+            </span>
+          </span>
 
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <button
-                className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-400/10 rounded-lg transition-colors ml-2"
-                title="Cerrar sesión"
+                type="button"
+                aria-label="Cerrar sesión"
+                className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-danger-soft hover:text-danger-text"
               >
-                <LogOut className="w-5 h-5" />
+                <LogOut className="size-4" />
               </button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>¿Deseas cerrar tu sesión?</AlertDialogTitle>
-                <AlertDialogDescription className="text-base text-slate-600">
+                <AlertDialogDescription>
                   Tendrás que volver a ingresar tu correo y contraseña la
                   próxima vez que quieras acceder al sistema.
                 </AlertDialogDescription>
@@ -333,7 +250,7 @@ export function Sidebar({
                 <AlertDialogCancel>Cancelar</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={logout}
-                  className="bg-rose-600 hover:bg-rose-700 text-white"
+                  className="bg-danger-solid text-white hover:bg-danger-solid-hover"
                 >
                   Sí, salir ahora
                 </AlertDialogAction>
@@ -341,7 +258,7 @@ export function Sidebar({
             </AlertDialogContent>
           </AlertDialog>
         </div>
-      </div>
+      </aside>
     </>
   );
 }

@@ -1,56 +1,44 @@
 import { NextResponse } from 'next/server';
-import { adminDb } from '@/lib/firebaseAdmin';
+import { errorResponse, requireUser, type Sesion } from "@/lib/authServer";
+import { sql } from "@/lib/db";
+import { exigirMoneda } from "@/lib/monedasServer";
+import { diaDeReporte, idHistorialDe } from "@/lib/retirosFila";
 
 export async function DELETE(request: Request) {
+  let yo: Sesion;
+  try {
+    yo = await requireUser(request);
+  } catch (e) {
+    return errorResponse(e);
+  }
   try {
     const { searchParams } = new URL(request.url);
-    const fecha = searchParams.get('fecha');
-    const moneda = searchParams.get('moneda');
+    const dia = diaDeReporte(searchParams.get('fecha'));
+    const moneda = searchParams.get('moneda') ?? '';
     const idHistorial = searchParams.get('id');
 
-    if (!fecha || !moneda || !idHistorial) {
+    if (!dia || !moneda || !idHistorial) {
       return NextResponse.json({ success: false, error: 'Faltan parámetros' }, { status: 400 });
     }
-
-    // 1. Buscar todos los registros individuales de esa fecha y moneda
-    const q = adminDb.collection('operaciones_retiros')
-      .where('Fecha del reporte', '==', fecha)
-      .where('Moneda', '==', moneda);
-    const snapshot = await q.get();
-
-    // 2. Preparar el borrado en lotes (Batch) de 500 en 500
-    const batches = [];
-    let currentBatch = adminDb.batch();
-    let count = 0;
-
-    snapshot.docs.forEach((documento) => {
-      currentBatch.delete(documento.ref);
-      count++;
-      if (count === 500) {
-        batches.push(currentBatch.commit());
-        currentBatch = adminDb.batch();
-        count = 0;
-      }
-    });
-    
-    // Si quedaron registros en el último lote, lo enviamos
-    if (count > 0) {
-      batches.push(currentBatch.commit());
+    exigirMoneda(yo, moneda);
+    // El historial se borra por id: debe ser el del mismo día y moneda que se autorizó.
+    if (idHistorial !== idHistorialDe(moneda, dia)) {
+      return NextResponse.json({ success: false, error: "El reporte no corresponde a ese día y moneda." }, { status: 400 });
     }
 
-    // Esperamos a que todos los retiros se borren de la base de datos
-    await Promise.all(batches);
+    // Retiros del día y su registro del historial, todo o nada.
+    const borrados = await sql.begin(async (tx) => {
+      const r = await tx`delete from retiros where fecha_reporte = ${dia}::date and moneda = ${moneda}`;
+      await tx`delete from historial_reportes where id = ${idHistorial}`;
+      return r.count;
+    });
 
-    // 3. Borramos el registro padre del historial
-    await adminDb.collection('historial_reportes').doc(idHistorial).delete();
-
-    return NextResponse.json({ 
-      success: true, 
-      message: `Reporte eliminado. Se borraron ${snapshot.docs.length} registros.` 
+    return NextResponse.json({
+      success: true,
+      message: `Reporte eliminado. Se borraron ${borrados} registros.`
     });
 
   } catch (error) {
-    console.error('Error eliminando reporte:', error);
-    return NextResponse.json({ success: false, error: 'Error interno al eliminar.' }, { status: 500 });
+    return errorResponse(error);
   }
 }

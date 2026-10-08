@@ -1,14 +1,20 @@
 import "./globals.css";
-import { Inter } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
+import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "./context/AuthContext";
 import { CurrencyProvider } from "./context/CurrencyContext";
 import { AutoLogoutGuard } from "@/components/AutoLogoutGuard";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "sonner";
 
-const inter = Inter({ subsets: ["latin"] });
+const geistSans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
+const geistMono = Geist_Mono({
+  subsets: ["latin"],
+  variable: "--font-geist-mono",
+});
 
 export const metadata = {
-  title: "Sistema de Reportes y Rendimiento",
+  title: "PayoutMetrics",
   description: "Plataforma corporativa de auditoría",
 };
 
@@ -18,18 +24,27 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es">
-      <body className={inter.className}>
-        <AuthProvider>
-          <CurrencyProvider>
-           {children}
-          </CurrencyProvider>
-        </AuthProvider>
+    <html lang="es" suppressHydrationWarning>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
+      >
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <TooltipProvider>
+            <AuthProvider>
+              <CurrencyProvider>{children}</CurrencyProvider>
+            </AuthProvider>
+          </TooltipProvider>
 
-        <Toaster position="bottom-right" richColors />
+          <Toaster position="bottom-right" richColors />
 
-        {/* El vigilante invisible que protege toda la app por inactividad */}
-        <AutoLogoutGuard />
+          {/* El vigilante invisible que protege toda la app por inactividad */}
+          <AutoLogoutGuard />
+        </ThemeProvider>
       </body>
     </html>
   );

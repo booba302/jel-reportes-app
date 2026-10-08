@@ -1,7 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // "Cargar reportes" y "Gestor de reportes" se unieron en /reportes
+  async redirects() {
+    return [
+      { source: "/cargar-reportes", destination: "/reportes", permanent: true },
+      { source: "/gestor-reportes", destination: "/reportes", permanent: true },
+    ];
+  },
 };
 
 export default nextConfig;

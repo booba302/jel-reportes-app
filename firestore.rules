@@ -1,0 +1,64 @@
+rules_version = '2';
+
+// Reglas de Firestore (§22.5). Este archivo NO se despliega solo: revísalo y
+// publícalo desde la consola de Firebase o con `firebase deploy --only firestore:rules`.
+// Todo lo que no aparece aquí queda denegado.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function me() { return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data; }
+    // Igual que la app: un perfil sin el campo `activo` cuenta como activo.
+    function activo() { return signedIn() && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) && me().get("activo", true) == true; }
+    function isAdmin() { return activo() && me().rol == "admin"; }
+
+    // ── Usuarios: solo el servidor (Admin SDK) crea, edita rol/estado o borra ──
+    match /usuarios/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create, delete: if false;
+      // El propio usuario solo puede apagar su bandera de contraseña temporal.
+      allow update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["debeCambiarPassword", "tempPassExpira"])
+        && request.resource.data.debeCambiarPassword == false
+        && request.resource.data.tempPassExpira == null;
+    }
+
+    match /auditoria_usuarios/{id} {
+      allow read: if isAdmin();
+      allow write: if false; // solo el servidor
+    }
+
+    // ── Datos operativos: cualquier usuario activo (igual que hoy, pero exige sesión y cuenta activa) ──
+    // Retiros, historial y notas viven en Postgres desde la fase 1 de Supabase: aquí quedan
+    // solo como respaldo. Sin escritura, una pestaña vieja falla en vez de guardar donde nadie lee.
+    match /operaciones_retiros/{id} { allow read: if activo(); allow write: if false; }
+    match /historial_reportes/{id} { allow read: if activo(); allow write: if false; }
+    match /observaciones_diarias/{id} { allow read: if activo(); allow write: if false; }
+    match /evaluaciones_desempeno/{id} { allow read, write: if activo(); }
+    match /configuracion/{id} { allow read, write: if activo(); }
+
+    // Cierre mensual: lo crea quien cierra; reabrir solo el admin o quien lo cerró.
+    match /evaluaciones_mensuales/{id} {
+      allow read: if activo();
+      allow create: if activo() && request.resource.data.cerradoPorUid == request.auth.uid;
+      allow update: if activo() && (
+        isAdmin()
+        || resource.data.cerradoPorUid == request.auth.uid
+        || resource.data.estado == "reabierto"
+      );
+      allow delete: if false;
+    }
+
+    // Los enlaces públicos los valida el servidor; en el cliente solo se crean, renuevan y leen con sesión.
+    match /enlaces_expedientes/{id} {
+      allow read, create, update: if activo();
+      allow delete: if false;
+    }
+
+    // Solo lo escribe la ruta /api/cerrar-mes.
+    match /cierres_mensuales_status/{id} {
+      allow read: if activo();
+      allow write: if false;
+    }
+  }
+}

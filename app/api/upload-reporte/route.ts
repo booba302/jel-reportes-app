@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
+import { errorResponse, requireUser, type Sesion } from "@/lib/authServer";
 import * as xlsx from "xlsx";
-import { adminDb } from "@/lib/firebaseAdmin";
+import { exigirMoneda } from "@/lib/monedasServer";
+import { guardarReporte } from "@/lib/retirosRepo";
+import { filaRetiro, idHistorialDe, type FilaHistorial, type FilaRetiro } from "@/lib/retirosFila";
 
 interface FilaReporteCruda {
   "Fecha de la operación": string;
@@ -17,7 +20,6 @@ function transformarFila(
   fila: FilaReporteCruda,
   moneda: string,
   fechaReporte: string,
-  rol: string,
 ) {
   const fechaOperacion = new Date(fila["Fecha de la operación"]);
   const fechaUpdate = new Date(fila["Update date"]);
@@ -68,13 +70,24 @@ function transformarFila(
 }
 
 export async function POST(request: Request) {
+  let yo: Sesion;
+  try {
+    yo = await requireUser(request);
+  } catch (e) {
+    return errorResponse(e);
+  }
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const currency = formData.get("currency") as string;
-    const subidoPor = formData.get("subidoPor") as string;
-
-    const rol = (formData.get("rol") as string) || "";
+    const subidoPor = yo.nombre;
+    try {
+      exigirMoneda(yo, currency);
+    } catch (e) {
+      return errorResponse(e);
+    }
+    // Opcional: si viene, solo se procesa ese día ("2026-10-03")
+    const fechaEsperada = formData.get("fechaEsperada") as string | null;
 
     if (!file) {
       return NextResponse.json(
@@ -133,60 +146,51 @@ export async function POST(request: Request) {
       reportesAgrupados[dateStr].push(fila);
     }
 
-    const operacionesRef = adminDb.collection("operaciones_retiros");
-    const todasLasOperacionesNuevas = [];
-    const historialesNuevos = [];
+    if (fechaEsperada) {
+      const clave = `${fechaEsperada}T00:00:00.000Z`;
+      if (!reportesAgrupados[clave]) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: "DATE_MISMATCH",
+            error: `El archivo no contiene retiros del ${fechaEsperada}.`,
+          },
+          { status: 400 },
+        );
+      }
+      // Procesar solo esa fecha
+      for (const k of Object.keys(reportesAgrupados))
+        if (k !== clave) delete reportesAgrupados[k];
+    }
+
+    const filas: FilaRetiro[] = [];
+    const historiales: FilaHistorial[] = [];
     const fechasProcesadas = Object.keys(reportesAgrupados);
 
-    // PREPARAMOS TODOS LOS DATOS
     for (const [dateStr, filasDeLaFecha] of Object.entries(reportesAgrupados)) {
-      const transformadas = filasDeLaFecha.map((fila) =>
-        transformarFila(fila, currency, dateStr, rol),
-      );
-      todasLasOperacionesNuevas.push(...transformadas);
-
-      // Preparamos el historial para el Gestor
-      const [year, month, day] = dateStr.split("T")[0].split("-");
-      const historialId = `${currency}_${year}-${month}-${day}`;
-
-      historialesNuevos.push({
-        id: historialId,
-        fechaReporte: dateStr,
+      const transformadas = filasDeLaFecha.map((fila) => transformarFila(fila, currency, dateStr));
+      for (const t of transformadas) {
+        const f = filaRetiro(t.idUnico, t.datos);
+        if (f) filas.push(f);
+      }
+      const dia = dateStr.slice(0, 10);
+      historiales.push({
+        id: idHistorialDe(currency, dia),
+        fecha_reporte: dia,
         moneda: currency,
-        subidoEl: new Date().toISOString(),
-        subidoPor: subidoPor || "Sistema",
-        totalRegistros: transformadas.length,
+        subido_el: new Date().toISOString(),
+        subido_por: subidoPor || "Sistema",
+        total_registros: transformadas.length,
       });
     }
 
-    // GUARDADO MASIVO (BATCH) CON MERGE (Sobrescribe si existe, crea si no existe)
-    // Procesamos en bloques de 500 porque es el límite de Firebase Batch
-    const chunks = [];
-    for (let i = 0; i < todasLasOperacionesNuevas.length; i += 500) {
-      chunks.push(todasLasOperacionesNuevas.slice(i, i + 500));
-    }
-
-    for (const chunk of chunks) {
-      const batch = adminDb.batch();
-      chunk.forEach((item) => {
-        const docRef = operacionesRef.doc(item.idUnico);
-        batch.set(docRef, item.datos, { merge: true });
-      });
-      await batch.commit();
-    }
-
-    // Guardar/Actualizar los historiales
-    const batchHistorial = adminDb.batch();
-    historialesNuevos.forEach((historial) => {
-      const ref = adminDb.collection("historial_reportes").doc(historial.id);
-      batchHistorial.set(ref, historial, { merge: true });
-    });
-    await batchHistorial.commit();
+    await guardarReporte(filas, historiales);
 
     return NextResponse.json({
       success: true,
-      message: `Archivo procesado con éxito. Se escanearon ${todasLasOperacionesNuevas.length} registros distribuidos en ${fechasProcesadas.length} días.`,
+      message: `Archivo procesado con éxito. Se escanearon ${filas.length} registros distribuidos en ${fechasProcesadas.length} días.`,
       monedaGuardada: currency,
+      totalRegistros: filas.length,
     });
   } catch (error) {
     console.error("Error procesando archivo:", error);

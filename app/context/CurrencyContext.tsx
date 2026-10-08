@@ -2,8 +2,8 @@
 
 import React, { createContext, useContext, useState, ReactNode } from "react";
 
-// Agregamos VES a los tipos permitidos
-type Currency = "CLP" | "PEN" | "USD" | "MXN" | "VES";
+// GLOBAL = todas las monedas (solo admin)
+export type Currency = "CLP" | "PEN" | "USD" | "MXN" | "VES" | "GLOBAL";
 
 interface CurrencyContextType {
   currency: Currency;
