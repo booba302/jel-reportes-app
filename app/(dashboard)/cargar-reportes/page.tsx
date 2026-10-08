@@ -1,5 +1,6 @@
 "use client";
 
+import { authHeaders } from "@/lib/apiFetch";
 import * as React from "react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -87,6 +88,7 @@ export default function CargarArchivosPage() {
       const response = await fetch("/api/fetch-api-reporte", {
         method: "POST",
         body: formData,
+        headers: await authHeaders(),
       });
 
       const json = await response.json();
@@ -184,6 +186,7 @@ export default function CargarArchivosPage() {
         const response = await fetch("/api/upload-reporte", {
           method: "POST",
           body: formData,
+          headers: await authHeaders(),
         });
         const json = await response.json();
         if (json.success) {

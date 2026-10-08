@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
+import { errorResponse, requireUser, type Sesion } from "@/lib/authServer";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { getMonedasByRol } from "@/lib/roles";
 import { isExonerated } from "@/lib/utils";
-
-const JEFES_EXCLUIDOS = ["Franklin Sanchez", "Marvin", "Evelyn"];
+import { normalizarNombre } from "@/lib/evaluacion";
+import { cargarExcluidosServer } from "@/lib/excluidosServer";
 
 const calcularPuntajeSLA = (porcentaje: number) => {
   if (porcentaje >= 100) return 10;
@@ -24,9 +25,15 @@ const calcularPuntajeTiempo = (minutos: number) => {
 };
 
 export async function POST(request: Request) {
+  let yo: Sesion;
+  try {
+    yo = await requireUser(request);
+  } catch (e) {
+    return errorResponse(e);
+  }
   try {
     const body = await request.json();
-    const { fecha, rol } = body;
+    const { fecha } = body;
 
     if (!fecha) {
       return NextResponse.json(
@@ -35,7 +42,8 @@ export async function POST(request: Request) {
       );
     }
 
-    const monedasPermitidas = getMonedasByRol(rol);
+    const monedasPermitidas = getMonedasByRol(yo.rol);
+    const excluidos = await cargarExcluidosServer();
 
     const start = `${fecha}T00:00:00.000Z`;
     const end = `${fecha}T23:59:59.999Z`;
@@ -63,7 +71,7 @@ export async function POST(request: Request) {
       const op = data.Operador || "Desconocido";
       const moneda = data.Moneda || "";
 
-      if (JEFES_EXCLUIDOS.includes(op)) return;
+      if (excluidos.has(normalizarNombre(op))) return;
       if (op.toLowerCase().includes("autopago")) return;
       if (!monedasPermitidas.includes(moneda)) return;
 

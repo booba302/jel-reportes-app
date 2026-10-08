@@ -1,5 +1,6 @@
 "use client";
 
+import { authHeaders } from "@/lib/apiFetch";
 import * as React from "react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -125,7 +126,7 @@ export default function GestorReportesPage() {
     setIsDeleting(reporte.id);
     try {
       const url = `/api/delete-reporte?fecha=${reporte.fechaReporte}&moneda=${reporte.moneda}&id=${reporte.id}`;
-      const response = await fetch(url, { method: "DELETE" });
+      const response = await fetch(url, { method: "DELETE", headers: await authHeaders() });
       const json = await response.json();
 
       if (json.success) {

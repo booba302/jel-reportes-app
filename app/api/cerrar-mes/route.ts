@@ -1,9 +1,18 @@
 import { NextResponse } from "next/server";
+import { errorResponse, requireUser, type Sesion } from "@/lib/authServer";
 import { adminDb } from "@/lib/firebaseAdmin";
+import { normalizarNombre } from "@/lib/evaluacion";
+import { cargarExcluidosServer } from "@/lib/excluidosServer";
 
 export async function POST(request: Request) {
+  let yo: Sesion;
   try {
-    const { mes, grupo, rol } = await request.json();
+    yo = await requireUser(request);
+  } catch (e) {
+    return errorResponse(e);
+  }
+  try {
+    const { mes, grupo } = await request.json();
 
     if (!mes || !grupo) {
       return NextResponse.json(
@@ -33,10 +42,15 @@ export async function POST(request: Request) {
       .where("fecha", ">=", start)
       .where("fecha", "<=", end);
 
-    const snapshot = await qEvals.get();
+    const [snapshot, excluidos] = await Promise.all([
+      qEvals.get(),
+      cargarExcluidosServer(),
+    ]);
+    // Los excluidos no se evalúan: no bloquean el cierre ni entran al ranking.
     const evalsFiltradas = snapshot.docs
       .map((d) => d.data())
-      .filter((d) => (grupo === "global" ? true : d.grupoMoneda === grupo));
+      .filter((d) => (grupo === "global" ? true : d.grupoMoneda === grupo))
+      .filter((d) => !excluidos.has(normalizarNombre(String(d.operador ?? ""))));
 
     // 3. VALIDACIÓN: ¿Están todos confirmados en este grupo?
     const pendientes = evalsFiltradas.filter((e) => e.estado === "Pendiente");
@@ -108,7 +122,7 @@ export async function POST(request: Request) {
       mes,
       grupo,
       estado: "Cerrado",
-      cerradoPor: rol,
+      cerradoPor: yo.nombre,
       fechaCierre: new Date().toISOString(),
     });
 

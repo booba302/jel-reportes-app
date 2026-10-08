@@ -1,27 +1,66 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "@/lib/firebase";
-import { useRouter } from "next/navigation";
-import {
-  Lock,
-  Mail,
-  Loader2,
-  AlertCircle,
-  Eye,
-  EyeOff,
-  BarChart3,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { FirebaseError } from "firebase/app";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowRight, CircleAlert, Loader2, Mail } from "lucide-react";
 import { toast } from "sonner";
+import { auth } from "@/lib/firebase";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { LoginBackdrop } from "@/components/login/LoginBackdrop";
+import {
+  PasswordInput,
+  loginIconClass,
+  loginInputClass,
+} from "@/components/login/PasswordInput";
 
-export default function LoginPage() {
+function mensajeError(code?: string) {
+  switch (code) {
+    case "auth/invalid-credential":
+    case "auth/invalid-email":
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+      return "Credenciales incorrectas o usuario no encontrado.";
+    case "auth/user-disabled":
+      return "Tu usuario está desactivado. Contacta a un administrador.";
+    case "auth/too-many-requests":
+      return "Demasiados intentos. Espera unos minutos e inténtalo de nuevo.";
+    case "auth/network-request-failed":
+      return "No hay conexión. Revisa tu red e inténtalo de nuevo.";
+    default:
+      return "No se pudo iniciar sesión. Inténtalo de nuevo.";
+  }
+}
+
+/** Mensajes cuando la app cerró la sesión (AuthContext → `/login?motivo=`). */
+const MOTIVOS: Record<string, string> = {
+  desactivado: "Tu acceso está desactivado. Habla con un administrador.",
+  "sin-perfil": "Tu usuario no tiene perfil en el sistema.",
+  "temporal-vencida":
+    "Tu contraseña temporal venció. Pide a un administrador que la restablezca.",
+};
+
+function AvisoError({ texto }: { texto: string }) {
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-2.5 rounded-[10px] border border-danger/30 bg-danger-soft px-3.5 py-3 text-[13px] text-danger-text"
+    >
+      <CircleAlert className="mt-px size-[17px] shrink-0" />
+      <span>{texto}</span>
+    </div>
+  );
+}
+
+function LoginForm() {
+  const motivo = MOTIVOS[useSearchParams().get("motivo") ?? ""];
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -33,118 +72,120 @@ export default function LoginPage() {
       await signInWithEmailAndPassword(auth, email, password);
       toast.success("Bienvenido a PayoutMetrics");
       router.push("/");
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      setError("Credenciales incorrectas o usuario no encontrado.");
-      toast.error("Error de acceso");
+      setError(mensajeError(err instanceof FirebaseError ? err.code : undefined));
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center bg-slate-900 px-4 relative overflow-hidden">
-      {/* Fondo decorativo */}
-      <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-primary/20 rounded-full blur-3xl"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-blue-500/20 rounded-full blur-3xl"></div>
+    <form onSubmit={handleLogin} className="flex flex-col gap-4">
+      {(error || motivo) && <AvisoError texto={error || motivo} />}
 
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-8 relative z-10">
-        <div className="text-center mb-8">
-          <div className="mx-auto flex items-center justify-center h-20 w-fit min-w-[140px] bg-slate-900 p-4 rounded-xl shadow-md mb-5 border border-slate-700">
-            <img
-              src="/logo-empresa.png"
-              alt="Logo Empresa"
-              className="h-full w-auto object-contain"
-              onError={(e) => {
-                // Si no encuentra la imagen, muestra este icono de respaldo temporal
-                e.currentTarget.style.display = "none";
-                e.currentTarget.parentElement!.innerHTML = `
-                  <div class="flex items-center justify-center">
-                    <svg class="w-8 h-8 text-slate-300" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><line x1="3" x2="21" y1="9" y2="9"/><line x1="9" x2="9" y1="21" y2="9"/></svg>
-                  </div>
-                `;
-              }}
-            />
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="email">Correo electrónico</Label>
+        <div className="relative">
+          <Mail className={loginIconClass} aria-hidden />
+          <Input
+            id="email"
+            type="email"
+            inputMode="email"
+            autoComplete="username"
+            required
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (error) setError("");
+            }}
+            placeholder="usuario@empresa.com"
+            className={loginInputClass}
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="password">Contraseña</Label>
+        <PasswordInput
+          id="password"
+          autoComplete="current-password"
+          required
+          value={password}
+          onChange={(e) => {
+            setPassword(e.target.value);
+            if (error) setError("");
+          }}
+          placeholder="••••••••"
+        />
+      </div>
+
+      <Button
+        type="submit"
+        disabled={isLoading}
+        aria-busy={isLoading}
+        className="mt-1.5 h-12 w-full gap-2 rounded-[10px] bg-primary text-[15px] font-semibold text-primary-foreground hover:bg-primary/90"
+      >
+        {isLoading ? (
+          <>
+            <Loader2 className="size-4 animate-spin" />
+            Ingresando…
+          </>
+        ) : (
+          <>
+            Ingresar al panel
+            <ArrowRight className="size-4" />
+          </>
+        )}
+      </Button>
+    </form>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-hidden bg-login-bg px-4 py-12 text-foreground max-sm:justify-end max-sm:px-5 max-sm:pb-7 max-sm:pt-0">
+      <LoginBackdrop />
+
+      {/* Viñeta: desktop radial, móvil vertical */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_55%_60%_at_50%_50%,var(--login-vignette-a)_0%,var(--login-vignette-b)_70%,var(--login-bg)_100%)] max-sm:bg-[linear-gradient(180deg,var(--login-vignette-a)_0%,var(--login-vignette-b)_42%,var(--login-bg)_60%)]"
+      />
+
+      <div className="relative z-10 flex w-full max-w-[410px] flex-col items-center gap-[22px] max-sm:items-stretch max-sm:gap-5">
+        {/* Marca */}
+        <div className="flex animate-login-enter flex-col items-center gap-2.5 text-center motion-reduce:animate-none max-sm:flex-row max-sm:gap-3 max-sm:text-left">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="" className="h-auto w-14 max-sm:w-11" />
+          <div className="flex flex-col max-sm:leading-tight">
+            <span className="text-[30px] font-extrabold tracking-[-0.03em] max-sm:text-[22px]">
+              PayoutMetrics
+            </span>
+            <span className="text-sm text-muted-foreground max-sm:text-[13px]">
+              Plataforma de auditoría y rendimiento
+            </span>
           </div>
-
-          <h1 className="text-3xl font-extrabold tracking-tight text-slate-800">
-            Payout<span className="text-primary">Metrics</span>
-          </h1>
-          <p className="text-slate-500 text-sm mt-2 font-medium flex items-center justify-center gap-1.5">
-            <BarChart3 className="w-4 h-4 text-primary/70" />
-            Plataforma de Auditoría y Rendimiento
-          </p>
         </div>
 
-        {error && (
-          <div className="bg-rose-50 text-rose-600 p-3 rounded-lg flex items-center text-sm mb-6 border border-rose-100">
-            <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0" />
-            {error}
+        {/* Tarjeta de vidrio */}
+        <div className="flex w-full animate-login-enter flex-col gap-[22px] rounded-[18px] border border-login-glass-border bg-login-glass px-7 py-[30px] shadow-[var(--login-glass-shadow)] backdrop-blur-[16px] [animation-delay:120ms] motion-reduce:animate-none max-sm:gap-5 max-sm:px-5 max-sm:py-6">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-[22px] font-bold tracking-tight max-sm:text-[21px]">
+              Inicia sesión
+            </h1>
+            <p className="text-[13px] text-muted-foreground">
+              Usa tu correo corporativo para entrar al panel.
+            </p>
           </div>
-        )}
+          <Suspense>
+            <LoginForm />
+          </Suspense>
+        </div>
 
-        <form onSubmit={handleLogin} className="space-y-5">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Correo Electrónico
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Mail className="h-5 w-5 text-slate-400" />
-              </div>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="block w-full pl-10 pr-3 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none text-slate-800 transition-shadow"
-                placeholder="usuario@empresa.com"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Contraseña
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Lock className="h-5 w-5 text-slate-400" />
-              </div>
-              <input
-                type={showPassword ? "text" : "password"}
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="block w-full pl-10 pr-12 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none text-slate-800 transition-shadow"
-                placeholder="••••••••"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
-              >
-                {showPassword ? (
-                  <EyeOff className="h-5 w-5" />
-                ) : (
-                  <Eye className="h-5 w-5" />
-                )}
-              </button>
-            </div>
-          </div>
-
-          <Button
-            type="submit"
-            disabled={isLoading}
-            className="w-full py-6 text-base font-semibold mt-4 shadow-md"
-          >
-            {isLoading ? (
-              <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-            ) : (
-              "Ingresar al panel"
-            )}
-          </Button>
-        </form>
+        <p className="text-center text-xs text-muted-foreground">
+          Desarrollado para JuegaEnLinea · v1.0 © 2026
+        </p>
       </div>
     </div>
   );

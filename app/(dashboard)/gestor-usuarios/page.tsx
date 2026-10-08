@@ -1,579 +1,246 @@
 "use client";
 
-import * as React from "react";
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { useMemo, useState } from "react";
+import { Ban, KeyRound, RotateCw, Shield, ShieldAlert, UserPlus, Users } from "lucide-react";
+import { toast } from "sonner";
 import { useAuth } from "@/app/context/AuthContext";
-
-import {
-  Users,
-  UserPlus,
-  Loader2,
-  ShieldAlert,
-  CheckCircle2,
-  X,
-  Mail,
-  Shield,
-  KeyRound,
-  Ban,
-  UserCheck,
-  Copy,
-  Check,
-} from "lucide-react";
+import { apiFetch } from "@/lib/apiFetch";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { toast } from "sonner";
-
-interface Usuario {
-  id: string;
-  nombre: string;
-  email: string;
-  rol: string;
-  activo: boolean;
-}
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { KpiCard } from "@/components/dashboard/KpiCard";
+import { cardClass } from "@/components/dashboard/CardHeading";
+import { UsersTable } from "@/components/usuarios/UsersTable";
+import { UserActivity } from "@/components/usuarios/UserActivity";
+import { CreateUserDialog } from "@/components/usuarios/CreateUserDialog";
+import { EditUserDialog } from "@/components/usuarios/EditUserDialog";
+import { ConfirmDialog } from "@/components/usuarios/ConfirmDialog";
+import { CredentialsResult, type Credenciales } from "@/components/usuarios/CredentialsResult";
+import { useUsuarios } from "@/components/usuarios/useUsuarios";
+import type { Usuario } from "@/components/usuarios/tipos";
 
 export default function GestorUsuariosPage() {
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
+  const esAdmin = userData?.rol === "admin";
+  const { usuarios, error, recargar } = useUsuarios(esAdmin);
+  const [versionActividad, setVersionActividad] = useState(0);
 
-  const [usuarios, setUsuarios] = React.useState<Usuario[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [crearAbierto, setCrearAbierto] = useState(false);
+  const [editando, setEditando] = useState<Usuario | null>(null);
+  const [restableciendo, setRestableciendo] = useState<Usuario | null>(null);
+  const [desactivando, setDesactivando] = useState<Usuario | null>(null);
+  const [credReset, setCredReset] = useState<Credenciales | null>(null);
 
-  const [isModalOpen, setIsModalOpen] = React.useState(false);
-  const [isPasswordModalOpen, setIsPasswordModalOpen] = React.useState(false);
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [selectedUser, setSelectedUser] = React.useState<Usuario | null>(null);
-
-  // Estado para mostrar las credenciales recién generadas
-  const [newCredentials, setNewCredentials] = React.useState<{
-    email: string;
-    pass: string;
-  } | null>(null);
-  const [copied, setCopied] = React.useState(false);
-
-  // Formularios simplificados (sin contraseñas)
-  const [formData, setFormData] = React.useState({
-    nombre: "",
-    email: "",
-    rol: "agente_retiros_internacional",
-  });
-
-  const fetchUsuarios = async () => {
-    setIsLoading(true);
-    try {
-      const snap = await getDocs(collection(db, "usuarios"));
-      const data: Usuario[] = [];
-      snap.forEach((doc) =>
-        data.push({ id: doc.id, ...doc.data() } as Usuario),
-      );
-      data.sort((a, b) => a.nombre.localeCompare(b.nombre));
-      setUsuarios(data);
-    } catch (error) {
-      toast.error("Error al cargar la lista de usuarios.");
-    } finally {
-      setIsLoading(false);
-    }
+  const refrescar = () => {
+    recargar();
+    setVersionActividad((v) => v + 1);
   };
 
-  React.useEffect(() => {
-    if (userData?.rol === "admin") fetchUsuarios();
-  }, [userData]);
+  const r = useMemo(() => {
+    const lista = usuarios ?? [];
+    const admins = lista.filter((u) => u.rol === "admin");
+    const adminsActivos = admins.filter((u) => u.activo);
+    return {
+      total: lista.length,
+      activos: lista.filter((u) => u.activo).length,
+      admins: admins.length,
+      adminsActivos: adminsActivos.length,
+      pendientes: lista.filter((u) => u.activo && u.debeCambiarPassword).length,
+      inactivos: lista.filter((u) => !u.activo).length,
+      ultimoAdminUid: adminsActivos.length === 1 ? adminsActivos[0].uid : null,
+      correos: new Set(lista.map((u) => u.email.toLowerCase())),
+    };
+  }, [usuarios]);
 
-  // Generador de contraseñas seguras de 8 caracteres
-  const generarPassword = () => {
-    const chars =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%*";
-    let pass = "";
-    for (let i = 0; i < 8; i++)
-      pass += chars.charAt(Math.floor(Math.random() * chars.length));
-    return pass;
-  };
-
-  const handleCopiarCredenciales = () => {
-    if (!newCredentials) return;
-    const texto = `Hola, tus credenciales de acceso al sistema son:\n\nUsuario: ${newCredentials.email}\nContraseña temporal: ${newCredentials.pass}\n\nNota: El sistema te pedirá cambiar esta contraseña al ingresar por primera vez.`;
-    navigator.clipboard.writeText(texto);
-    setCopied(true);
-    toast.success("Credenciales copiadas al portapapeles");
-    setTimeout(() => setCopied(false), 3000);
-  };
-
-  const handleCrearUsuario = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    const passTemporal = generarPassword();
-
-    try {
-      const response = await fetch("/api/crear-usuario", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...formData, password: passTemporal }),
-      });
-      const result = await response.json();
-
-      if (result.success) {
-        toast.success("Usuario Creado exitosamente.");
-        setNewCredentials({ email: formData.email, pass: passTemporal });
-        await fetchUsuarios();
-      } else {
-        toast.error("Error", { description: result.error });
-      }
-    } catch (error) {
-      toast.error("Error de red.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleCambiarPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedUser) return;
-    setIsSubmitting(true);
-    const passTemporal = generarPassword();
-
-    try {
-      const response = await fetch("/api/cambiar-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          uid: selectedUser.id,
-          newPassword: passTemporal,
-        }),
-      });
-      const result = await response.json();
-
-      if (result.success) {
-        toast.success(`Contraseña actualizada para ${selectedUser.nombre}.`);
-        setNewCredentials({ email: selectedUser.email, pass: passTemporal });
-      } else {
-        toast.error("Error", { description: result.error });
-      }
-    } catch (error) {
-      toast.error("Error de red.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleToggleEstado = async (usr: Usuario) => {
-    if (usr.rol === "admin")
-      return toast.error("No puedes desactivar a un administrador.");
-    const nuevoEstado = !usr.activo;
-    const toastId = toast.loading(
-      `${nuevoEstado ? "Activando" : "Desactivando"} usuario...`,
-    );
-
-    try {
-      const response = await fetch("/api/toggle-estado-usuario", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          uid: usr.id,
-          activo: nuevoEstado,
-          rol: usr.rol,
-        }),
-      });
-      const result = await response.json();
-      if (result.success) {
-        toast.success(result.message, { id: toastId });
-        await fetchUsuarios();
-      } else toast.error(result.error, { id: toastId });
-    } catch (error) {
-      toast.error("Error de red.", { id: toastId });
-    }
-  };
-
-  const formatearRol = (rol: string) => {
-    switch (rol) {
-      case "admin":
-        return "Administrador";
-      case "agente_retiros_internacional":
-        return "Agente Internacional";
-      case "agente_retiros_nacional":
-        return "Agente Nacional";
-      default:
-        return rol.replace(/_/g, " ");
-    }
-  };
-
-  // Función para cerrar modal y limpiar credenciales temporales
-  const cerrarModal = () => {
-    setIsModalOpen(false);
-    setIsPasswordModalOpen(false);
-    setNewCredentials(null);
-    setFormData({ nombre: "", email: "", rol: "agente_retiros_internacional" });
-  };
-
-  if (userData?.rol !== "admin") {
+  if (!esAdmin) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[80vh] text-slate-500">
-        <ShieldAlert className="w-16 h-16 text-rose-500 mb-4" />
-        <h2 className="text-2xl font-bold text-slate-800">Acceso Denegado</h2>
+      <div className="mx-auto flex w-full max-w-[1240px] flex-col items-center gap-3 px-4 py-20 text-center">
+        <ShieldAlert className="size-12 text-danger-text" />
+        <h1 className="text-xl font-semibold">Acceso denegado</h1>
+        <p className="text-muted-foreground">Solo un administrador puede gestionar usuarios.</p>
       </div>
     );
   }
 
-  // Componente reutilizable para mostrar credenciales
-  const CredencialesGeneradas = () => (
-    <div className="p-6 space-y-6 animate-in zoom-in-95 duration-300">
-      <div className="text-center">
-        <div className="mx-auto w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mb-3">
-          <CheckCircle2 className="w-6 h-6 text-emerald-600" />
-        </div>
-        <h3 className="text-lg font-bold text-slate-800">
-          ¡Operación Exitosa!
-        </h3>
-        <p className="text-sm text-slate-500 mt-1">
-          Comparte estas credenciales con el agente.
-        </p>
-      </div>
-
-      <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 font-mono text-sm space-y-2">
-        <div className="flex justify-between border-b pb-2">
-          <span className="text-slate-500">Usuario:</span>
-          <span className="font-bold text-slate-800">
-            {newCredentials?.email}
-          </span>
-        </div>
-        <div className="flex justify-between pt-1">
-          <span className="text-slate-500">Contraseña temporal:</span>
-          <span className="font-bold text-rose-600">
-            {newCredentials?.pass}
-          </span>
-        </div>
-      </div>
-
-      <Button
-        onClick={handleCopiarCredenciales}
-        className={cn(
-          "w-full h-12 text-base transition-all",
-          copied
-            ? "bg-emerald-600 hover:bg-emerald-700"
-            : "bg-primary hover:bg-primary/90",
-        )}
-      >
-        {copied ? (
-          <>
-            <Check className="w-5 h-5 mr-2" /> Copiado
-          </>
-        ) : (
-          <>
-            <Copy className="w-5 h-5 mr-2" /> Copiar para enviar
-          </>
-        )}
-      </Button>
-
-      <Button
-        variant="ghost"
-        onClick={cerrarModal}
-        className="w-full text-slate-500"
-      >
-        Cerrar ventana
-      </Button>
-    </div>
-  );
+  const reactivar = async (u: Usuario) => {
+    try {
+      await apiFetch(`/api/usuarios/${u.uid}/estado`, {
+        method: "POST",
+        body: JSON.stringify({ activo: true }),
+      });
+      toast.success(`${u.nombre} vuelve a tener acceso`);
+      refrescar();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo reactivar.");
+    }
+  };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8 relative">
-      <div className="flex flex-col md:flex-row justify-between md:items-end gap-4 bg-white p-5 rounded-lg border shadow-sm">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-            <Users className="w-8 h-8 text-primary" /> Gestión de Usuarios
-          </h1>
-          <p className="text-slate-500 mt-1">
-            Administra los accesos y roles de tu equipo.
-          </p>
+    <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4 px-4 pb-9 pt-6 md:px-7">
+      <div className="flex flex-wrap items-end justify-between gap-3.5">
+        <div className="flex flex-col gap-0.5">
+          <h1 className="text-[26px] font-bold leading-tight tracking-tight">Gestión de usuarios</h1>
+          <p className="text-muted-foreground">Accesos, roles y contraseñas del equipo</p>
         </div>
         <Button
-          onClick={() => setIsModalOpen(true)}
-          className="bg-primary hover:bg-primary/90 text-white shadow-sm"
+          onClick={() => setCrearAbierto(true)}
+          className="h-9 gap-2 rounded-lg bg-action text-action-foreground hover:bg-action-hover"
         >
-          <UserPlus className="h-4 w-4 mr-2" /> Nuevo Usuario
+          <UserPlus className="size-4" />
+          Nuevo usuario
         </Button>
       </div>
 
-      <Card>
-        <CardHeader className="bg-slate-50/50 border-b">
-          <CardTitle className="text-lg">Directorio de Accesos</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0 overflow-x-auto">
-          <Table>
-            <TableHeader className="bg-slate-50">
-              <TableRow>
-                <TableHead className="pl-6 font-semibold">Empleado</TableHead>
-                <TableHead>Correo</TableHead>
-                <TableHead className="text-center">Rol</TableHead>
-                <TableHead className="text-center">Estado</TableHead>
-                <TableHead className="text-right pr-6">Acción</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="h-32 text-center">
-                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-slate-400" />
-                  </TableCell>
-                </TableRow>
-              ) : usuarios.length > 0 ? (
-                usuarios.map((usr) => (
-                  <TableRow key={usr.id}>
-                    <TableCell className="pl-6 font-medium text-slate-800">
-                      {usr.nombre}
-                    </TableCell>
-                    <TableCell className="text-slate-600">
-                      {usr.email}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <span
-                        className={cn(
-                          "px-2.5 py-1 text-[10px] uppercase tracking-wider font-bold rounded-full border",
-                          usr.rol === "admin"
-                            ? "bg-amber-50 text-amber-700 border-amber-200"
-                            : "bg-blue-50 text-blue-700 border-blue-200",
-                        )}
-                      >
-                        {formatearRol(usr.rol)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {usr.activo ? (
-                        <div className="inline-flex items-center text-xs font-medium text-emerald-600">
-                          <CheckCircle2 className="w-3 h-3 mr-1" /> Activo
-                        </div>
-                      ) : (
-                        <div className="inline-flex items-center text-xs font-medium text-rose-600">
-                          <X className="w-3 h-3 mr-1" /> Inactivo
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right pr-6">
-                      <div className="flex items-center justify-end gap-1">
-                        {usr.rol !== "admin" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className={
-                              usr.activo
-                                ? "text-slate-500 hover:text-rose-600 hover:bg-rose-50"
-                                : "text-slate-500 hover:text-emerald-600 hover:bg-emerald-50"
-                            }
-                            title={
-                              usr.activo
-                                ? "Desactivar acceso"
-                                : "Activar acceso"
-                            }
-                            onClick={() => handleToggleEstado(usr)}
-                          >
-                            {usr.activo ? (
-                              <Ban className="w-4 h-4" />
-                            ) : (
-                              <UserCheck className="w-4 h-4" />
-                            )}
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-slate-500 hover:text-amber-600 hover:bg-amber-50"
-                          title="Restablecer contraseña"
-                          onClick={() => {
-                            setSelectedUser(usr);
-                            setIsPasswordModalOpen(true);
-                          }}
-                        >
-                          <KeyRound className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell
-                    colSpan={5}
-                    className="h-24 text-center text-slate-500"
-                  >
-                    No hay usuarios registrados.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      {/* MODAL CREAR USUARIO */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
-            <div className="bg-slate-50 border-b px-6 py-4 flex justify-between items-center">
-              <h3 className="text-lg font-bold text-slate-800 flex items-center">
-                <UserPlus className="w-5 h-5 mr-2 text-primary" /> Crear Usuario
-              </h3>
-              {!newCredentials && (
-                <button
-                  onClick={cerrarModal}
-                  className="text-slate-400 hover:text-slate-600"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              )}
-            </div>
-
-            {newCredentials ? (
-              <CredencialesGeneradas />
-            ) : (
-              <form onSubmit={handleCrearUsuario} className="p-6 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Nombre Completo
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Users className="h-4 w-4 text-slate-400" />
-                    </div>
-                    <input
-                      type="text"
-                      required
-                      value={formData.nombre}
-                      onChange={(e) =>
-                        setFormData({ ...formData, nombre: e.target.value })
-                      }
-                      className="block w-full pl-10 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
-                      placeholder="Ej: Juan Pérez"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Correo Electrónico
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Mail className="h-4 w-4 text-slate-400" />
-                    </div>
-                    <input
-                      type="email"
-                      required
-                      value={formData.email}
-                      onChange={(e) =>
-                        setFormData({ ...formData, email: e.target.value })
-                      }
-                      className="block w-full pl-10 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary outline-none"
-                      placeholder="usuario@empresa.com"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Rol del Sistema
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Shield className="h-4 w-4 text-slate-400" />
-                    </div>
-                    <select
-                      required
-                      value={formData.rol}
-                      onChange={(e) =>
-                        setFormData({ ...formData, rol: e.target.value })
-                      }
-                      className="block w-full pl-10 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary outline-none bg-white"
-                    >
-                      <option value="agente_retiros_internacional">
-                        Agente de Retiros (Internacional)
-                      </option>
-                      <option value="agente_retiros_nacional">
-                        Agente de Retiros (Nacional)
-                      </option>
-                      <option value="admin">
-                        Administrador (Acceso Total)
-                      </option>
-                    </select>
-                  </div>
-                </div>
-                <div className="bg-amber-50 text-amber-700 p-3 rounded-lg text-xs mt-2 border border-amber-200">
-                  <span className="font-bold">Nota:</span> El sistema generará
-                  automáticamente una contraseña temporal y segura.
-                </div>
-                <div className="flex justify-end gap-3 pt-4 border-t mt-6">
-                  <Button type="button" variant="outline" onClick={cerrarModal}>
-                    Cancelar
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="bg-primary"
-                  >
-                    {isSubmitting ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      "Generar Credenciales"
-                    )}
-                  </Button>
-                </div>
-              </form>
-            )}
+      {error ? (
+        <section className={cn(cardClass, "flex flex-col items-center gap-3 py-12 text-center")}>
+          <p className="text-muted-foreground">No se pudo cargar la lista de usuarios.</p>
+          <Button variant="outline" className="gap-2" onClick={recargar}>
+            <RotateCw className="size-4" />
+            Reintentar
+          </Button>
+        </section>
+      ) : !usuarios ? (
+        <div className="flex flex-col gap-4" aria-hidden>
+          <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr))]">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-[118px] rounded-xl" />
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-3.5">
+            <Skeleton className="h-[420px] min-w-0 flex-[2.4_1_640px] rounded-xl" />
+            <Skeleton className="h-[420px] min-w-0 flex-[1_1_300px] rounded-xl" />
           </div>
         </div>
-      )}
-
-      {/* MODAL RESETEAR CONTRASEÑA */}
-      {isPasswordModalOpen && selectedUser && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm px-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
-            <div className="bg-amber-50 border-b border-amber-100 px-6 py-4 flex justify-between items-center">
-              <h3 className="text-lg font-bold text-amber-800 flex items-center">
-                <KeyRound className="w-5 h-5 mr-2 text-amber-600" /> Restablecer
-                Acceso
-              </h3>
-              {!newCredentials && (
-                <button
-                  onClick={cerrarModal}
-                  className="text-amber-600 hover:text-amber-800"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              )}
-            </div>
-
-            {newCredentials ? (
-              <CredencialesGeneradas />
-            ) : (
-              <form onSubmit={handleCambiarPassword} className="p-6 space-y-4">
-                <p className="text-sm text-slate-600 text-center">
-                  ¿Estás seguro de que deseas revocar la contraseña actual de{" "}
-                  <b>{selectedUser.nombre}</b> y generar una nueva?
-                </p>
-                <div className="flex justify-end gap-3 pt-4 border-t mt-6">
-                  <Button type="button" variant="outline" onClick={cerrarModal}>
-                    Cancelar
-                  </Button>
-                  <Button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="bg-amber-600 hover:bg-amber-700 text-white"
-                  >
-                    {isSubmitting ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      "Sí, generar nueva"
-                    )}
-                  </Button>
-                </div>
-              </form>
-            )}
+      ) : (
+        <>
+          <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr))]">
+            <KpiCard
+              icon={Users}
+              iconClassName="text-icon-blue"
+              title="Usuarios activos"
+              value={String(r.activos)}
+              footer={`de ${r.total} registrados`}
+            />
+            <KpiCard
+              icon={Shield}
+              iconClassName="text-icon-violet"
+              title="Administradores"
+              value={String(r.admins)}
+              footer={`${r.adminsActivos} ${r.adminsActivos === 1 ? "activo" : "activos"} · siempre debe quedar al menos 1`}
+            />
+            <KpiCard
+              icon={KeyRound}
+              iconClassName="text-icon-amber"
+              title="Pendientes de primer ingreso"
+              value={String(r.pendientes)}
+              footer="Con contraseña temporal sin cambiar"
+            />
+            <KpiCard
+              icon={Ban}
+              iconClassName="text-icon-rose"
+              title="Inactivos"
+              value={String(r.inactivos)}
+              footer="Sin acceso; su historial se conserva"
+            />
           </div>
-        </div>
+
+          <div className="flex flex-wrap items-start gap-3.5">
+            <UsersTable
+              className="min-w-0 flex-[2.4_1_640px]"
+              usuarios={usuarios}
+              yoUid={user?.uid ?? ""}
+              ultimoAdminUid={r.ultimoAdminUid}
+              onEditar={setEditando}
+              onRestablecer={setRestableciendo}
+              onDesactivar={setDesactivando}
+              onReactivar={reactivar}
+            />
+            <UserActivity className="min-w-0 flex-[1_1_300px]" version={versionActividad} />
+          </div>
+        </>
       )}
+
+      <CreateUserDialog
+        open={crearAbierto}
+        onOpenChange={setCrearAbierto}
+        correosExistentes={r.correos}
+        onCreado={refrescar}
+      />
+
+      {editando && (
+        <EditUserDialog
+          key={editando.uid}
+          usuario={editando}
+          esYo={editando.uid === user?.uid}
+          esUltimoAdmin={editando.uid === r.ultimoAdminUid}
+          onOpenChange={(o) => !o && setEditando(null)}
+          onGuardado={refrescar}
+        />
+      )}
+
+      <ConfirmDialog
+        open={Boolean(restableciendo)}
+        onOpenChange={(o) => !o && setRestableciendo(null)}
+        titulo={`¿Restablecer la contraseña de ${restableciendo?.nombre ?? ""}?`}
+        descripcion="Se genera una contraseña temporal nueva y se cierran sus sesiones abiertas. Al entrar, tendrá que elegir una propia."
+        accion="Generar contraseña"
+        tono="warning"
+        onConfirmar={async () => {
+          if (!restableciendo) return;
+          try {
+            const c = await apiFetch<Credenciales>(`/api/usuarios/${restableciendo.uid}/restablecer`, {
+              method: "POST",
+            });
+            setCredReset({ nombre: c.nombre, email: c.email, password: c.password });
+            refrescar();
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "No se pudo restablecer.");
+            throw err;
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(desactivando)}
+        onOpenChange={(o) => !o && setDesactivando(null)}
+        titulo={`¿Desactivar a ${desactivando?.nombre ?? ""}?`}
+        descripcion="No podrá iniciar sesión y se cerrarán sus sesiones abiertas. Sus evaluaciones, cierres y su historial se conservan. Puedes reactivarlo cuando quieras."
+        accion="Desactivar"
+        tono="danger"
+        onConfirmar={async () => {
+          if (!desactivando) return;
+          try {
+            await apiFetch(`/api/usuarios/${desactivando.uid}/estado`, {
+              method: "POST",
+              body: JSON.stringify({ activo: false }),
+            });
+            toast.success(`${desactivando.nombre} ya no tiene acceso`);
+            refrescar();
+          } catch (err) {
+            toast.error(err instanceof Error ? err.message : "No se pudo desactivar.");
+            throw err;
+          }
+        }}
+      />
+
+      {/* Contraseña restablecida: no se cierra por accidente mientras se muestra. */}
+      <Dialog open={Boolean(credReset)}>
+        <DialogContent
+          showCloseButton={false}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+          className="max-h-[90dvh] overflow-y-auto p-5 sm:max-w-[480px]"
+        >
+          {credReset && (
+            <CredentialsResult
+              cred={credReset}
+              titulo="Contraseña restablecida"
+              onListo={() => setCredReset(null)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

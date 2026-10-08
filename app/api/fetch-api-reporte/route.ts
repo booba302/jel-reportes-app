@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { errorResponse, requireUser, type Sesion } from "@/lib/authServer";
 
-const HORAS_DIFERENCIA = 3;
+// La operación trabaja en hora de Venezuela (UTC-4, sin horario de verano).
+const HORAS_DIFERENCIA = 4;
 
 function ajustarFechaUTCaLocal(fechaString: string) {
   if (!fechaString) return "";
@@ -35,11 +37,38 @@ const MAPA_OPERADORES: Record<number | string, string> = {
 };
 
 export async function POST(request: Request) {
+  let yo: Sesion;
+  try {
+    yo = await requireUser(request);
+  } catch (e) {
+    return errorResponse(e);
+  }
   try {
     const formData = await request.formData();
     const currency = formData.get("currency") as string;
-    const subidoPor = formData.get("subidoPor") as string;
+    const subidoPor = yo.nombre;
     const fecha = formData.get("fecha") as string;
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha ?? "")) {
+      return NextResponse.json(
+        { success: false, error: "Fecha inválida." },
+        { status: 400 },
+      );
+    }
+
+    // "Hoy" en la zona horaria de operación (UTC-HORAS_DIFERENCIA)
+    const hoyOperacion = new Date(Date.now() - HORAS_DIFERENCIA * 3600 * 1000)
+      .toISOString()
+      .split("T")[0];
+    if (fecha >= hoyOperacion) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "No se puede cargar el día en curso ni días futuros.",
+        },
+        { status: 400 },
+      );
+    }
 
     const mapeoCompanias: Record<string, string> = {
       CLP: "JLC",

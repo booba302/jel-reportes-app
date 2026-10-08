@@ -1,891 +1,295 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  doc,
-  getDoc,
-  setDoc,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { format } from "date-fns";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { arrayUnion, doc, setDoc, updateDoc } from "firebase/firestore";
+import { addMonths, format } from "date-fns";
 import { es } from "date-fns/locale";
-import * as xlsx from "xlsx";
-import { toPng } from "html-to-image";
-import { jsPDF } from "jspdf";
-import { useRouter, useSearchParams } from "next/navigation";
+import { toast } from "sonner";
+import { db } from "@/lib/firebase";
 import { useAuth } from "@/app/context/AuthContext";
 import { parseUserRole } from "@/lib/roles";
-
-import {
-  Trophy,
-  AlertCircle,
-  CheckCircle2,
-  Lock,
-  Loader2,
-  CalendarDays,
-  TrendingUp,
-  Target,
-  Download,
-  Printer,
-  Award,
-  Link as LinkIcon,
-} from "lucide-react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { normalizarNombre } from "@/lib/evaluacion";
+import { capitalizar } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { toast } from "sonner";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cardClass } from "@/components/dashboard/CardHeading";
+import { MonthPicker } from "@/components/reportes/MonthPicker";
+import { parseMesStr, toMesStr } from "@/components/reportes/fechas";
+import { useExcluidos } from "@/components/evaluacion/useExcluidos";
+import { useCierreMes, useEstadoMeses, idCierre } from "@/components/cierre/useCierreMes";
+import { ClosingSteps } from "@/components/cierre/ClosingSteps";
+import { MonthKpis } from "@/components/cierre/MonthKpis";
+import { TopOperatorCard } from "@/components/cierre/TopOperatorCard";
+import { TeamTrend } from "@/components/cierre/TeamTrend";
+import { RankingTable } from "@/components/cierre/RankingTable";
+import { copiarEnlaceExpediente } from "@/components/cierre/enlaces";
+import { documentoCierre } from "@/components/cierre/exportar";
+import { PdfButton } from "@/components/pdf/PdfButton";
+import { ExportPdfDialog } from "@/components/pdf/ExportPdfDialog";
 
-export default function CierreMensualPage() {
-  const router = useRouter();
+type Chip = { label: string; className: string };
+
+function CierreContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const { user, userData } = useAuth();
+  const rol = useMemo(() => parseUserRole(userData?.rol), [userData?.rol]);
+  const usuario = userData?.nombre || "Usuario";
+  const panel = rol.isAdmin ? "Administrador" : rol.isInter ? "Internacional" : "Nacional";
+  const grupoCierre = rol.isAdmin ? "Global" : rol.grupoUsuario;
 
-  const { userData } = useAuth();
-  const { isAdmin, isInter, esNacional, grupoUsuario } = parseUserRole(userData?.rol);
-
-  const mesQuery = searchParams.get("mes");
-  const [mesActual, setMesActual] = useState<string>(
-    mesQuery || format(new Date(), "yyyy-MM"),
-  );
-
-  const [pickerYear, setPickerYear] = useState(
-    parseInt(format(new Date(), "yyyy")),
-  );
-  const mesesNombres = [
-    "Ene",
-    "Feb",
-    "Mar",
-    "Abr",
-    "May",
-    "Jun",
-    "Jul",
-    "Ago",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dic",
-  ];
-  const [isLoading, setIsLoading] = useState(false);
-  const [isClosing, setIsClosing] = useState(false);
-
-  const [mesCerrado, setMesCerrado] = useState(false);
-  const [mesYaTermino, setMesYaTermino] = useState(false);
-
-  const [rawEvalsGuardados, setRawEvalsGuardados] = useState<any[]>([]);
-  const [reportesMensuales, setReportesMensuales] = useState<any[]>([]);
-  const [metricasGlobales, setMetricasGlobales] = useState<any>(null);
-  const [estadoAuditoria, setEstadoAuditoria] = useState<any>(null);
-
-  const [isExportingPDF, setIsExportingPDF] = useState(false);
-  const [exportingType, setExportingType] = useState<
-    "GLOBAL" | "DETALLE" | null
-  >(null);
-
-  const handleExportPDF = (tipo: "GLOBAL" | "DETALLE") => {
-    setIsExportingPDF(true);
-    setExportingType(tipo);
-    toast.info("Ajustando dimensiones...", {
-      description: "Preparando captura de alta calidad.",
-    });
-
-    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-
-    const viewportMeta = document.querySelector('meta[name="viewport"]');
-    const originalViewport = viewportMeta?.getAttribute("content") || "";
-    if (viewportMeta) {
-      viewportMeta.setAttribute("content", "width=1200, initial-scale=1");
-    }
-
-    const elementId = "cierre-mensual-global";
-    const nombreArchivo = `Cierre_Mensual_${mesActual}.pdf`;
-
-    requestAnimationFrame(() => requestAnimationFrame(async () => {
-      const element = document.getElementById(elementId);
-      if (!element) {
-        setIsExportingPDF(false);
-        setExportingType(null);
-        return;
-      }
-
-      try {
-        const dataUrl = await toPng(element, {
-          quality: 1,
-          backgroundColor: "#f8fafc",
-          pixelRatio: 2,
-          width: 1200,
-          height: element.scrollHeight,
-          style: { width: "1200px" },
-          filter: (node) => {
-            if (
-              node instanceof HTMLElement &&
-              node.dataset.html2canvasIgnore === "true"
-            )
-              return false;
-            return true;
-          },
-        });
-
-        const pdf = new jsPDF("p", "mm", "a4");
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-
-        const imgProps = pdf.getImageProperties(dataUrl);
-        const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
-
-        let heightLeft = imgHeight;
-        let position = 0;
-
-        pdf.addImage(dataUrl, "PNG", 0, position, pdfWidth, imgHeight);
-        heightLeft -= pageHeight;
-
-        while (heightLeft > 0) {
-          position = heightLeft - imgHeight;
-          pdf.addPage();
-          pdf.addImage(dataUrl, "PNG", 0, position, pdfWidth, imgHeight);
-          heightLeft -= pageHeight;
-        }
-
-        pdf.save(nombreArchivo);
-        toast.success("PDF exportado exitosamente");
-      } catch (error) {
-        console.error("Error generando PDF:", error);
-        toast.error("Hubo un problema al exportar el documento.");
-      } finally {
-        if (viewportMeta)
-          viewportMeta.setAttribute("content", originalViewport);
-        setIsExportingPDF(false);
-        setExportingType(null);
-      }
-    }));
-  };
-
-  const fetchData = async () => {
-    setIsLoading(true);
-    try {
-      const today = new Date();
-      const currentMonthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
-      setMesYaTermino(mesActual < currentMonthStr);
-
-      const start = `${mesActual}-01T00:00:00.000Z`;
-      const end = `${mesActual}-31T23:59:59.999Z`;
-
-      const JEFES_EXCLUIDOS = ["Franklin Sanchez", "Marvin", "Evelyn"];
-
-      const q = query(
-        collection(db, "evaluaciones_desempeno"),
-        where("fecha", ">=", start),
-        where("fecha", "<=", end),
-      );
-      const snapshot = await getDocs(q);
-      const diarias: any[] = [];
-
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        if (!JEFES_EXCLUIDOS.includes(data.operador)) {
-          if (!isAdmin) {
-            const isDataNacional = data.grupoMoneda === "nacional";
-            // Si el usuario es nacional y la data no lo es, la ignoramos
-            if (esNacional && !isDataNacional) return;
-            // Si el usuario es internacional y la data ES nacional (VES), la ignoramos
-            if (isInter && isDataNacional) return;
-          }
-
-          diarias.push(data);
-        }
-      });
-      setRawEvalsGuardados(diarias);
-
-      // Each group's closure doc is keyed by group to avoid collisions
-      const cierreDocId = isAdmin ? mesActual : `${mesActual}_${grupoUsuario}`;
-      const docCierreRef = doc(db, "evaluaciones_mensuales", cierreDocId);
-      const docCierreSnap = await getDoc(docCierreRef);
-
-      if (docCierreSnap.exists()) {
-        const data = docCierreSnap.data();
-        setMesCerrado(true);
-
-        const rankingLimpio = (data.ranking || []).filter(
-          (r: any) => !JEFES_EXCLUIDOS.includes(r.operador),
-        );
-
-        setReportesMensuales(rankingLimpio);
-        setMetricasGlobales(data.metrics);
-        setEstadoAuditoria(null);
-      } else {
-        setMesCerrado(false);
-        const agtMap: Record<string, any> = {};
-
-        let globalRetiros = 0,
-          globalSlaCumplido = 0,
-          globalTiempoMins = 0;
-
-        // Count unique days, not individual records
-        const diasMap: Record<string, { total: number; confirmados: number }> =
-          {};
-
-        diarias.forEach((ev) => {
-          // Lógica de Conteo de Días Únicos
-          const fechaCorta = ev.fecha.split("T")[0];
-          if (!diasMap[fechaCorta]) {
-            diasMap[fechaCorta] = { total: 0, confirmados: 0 };
-          }
-          diasMap[fechaCorta].total++;
-          if (ev.estado === "Confirmado") diasMap[fechaCorta].confirmados++;
-
-          // Lógica Original de Rendimiento
-          const op = ev.operador;
-          if (!agtMap[op]) {
-            agtMap[op] = {
-              operador: op,
-              diasTrabajados: 0,
-              totalRetiros: 0,
-              retirosCumplidos: 0,
-              tiempoTotalMins: 0,
-              sumPuntualidad: 0,
-              sumProactividad: 0,
-              sumNotaFinal: 0,
-              inconvenientes: 0,
-              turnosIncompletos: 0,
-            };
-          }
-
-          const retirosCumplidosDia = Math.round(
-            (ev.cumplimientoSlaPct / 100) * ev.totalRetiros,
-          );
-          const tiempoTotalDia = ev.tiempoPromedioMin * ev.totalRetiros;
-
-          globalRetiros += ev.totalRetiros;
-          globalSlaCumplido += retirosCumplidosDia;
-          globalTiempoMins += tiempoTotalDia;
-
-          agtMap[op].diasTrabajados++;
-          agtMap[op].totalRetiros += ev.totalRetiros;
-          agtMap[op].retirosCumplidos += retirosCumplidosDia;
-          agtMap[op].tiempoTotalMins += tiempoTotalDia;
-          agtMap[op].sumPuntualidad += Number(ev.puntualidad) || 0;
-          agtMap[op].sumProactividad += Number(ev.proactividad) || 0;
-          agtMap[op].sumNotaFinal += Number(ev.puntajeFinal) || 0;
-          if (ev.tuvoInconveniente) agtMap[op].inconvenientes++;
-          if (!ev.completoTurno) agtMap[op].turnosIncompletos++;
-        });
-
-        const totalDiasUnicos = Object.keys(diasMap).length;
-        let diasConfirmados = 0;
-        let diasPendientes = 0;
-
-        Object.values(diasMap).forEach((dia) => {
-          if (dia.total === dia.confirmados) diasConfirmados++;
-          else diasPendientes++;
-        });
-
-        const ranking = Object.values(agtMap)
-          .map((agt) => {
-            const dias = agt.diasTrabajados;
-            return {
-              ...agt,
-              slaPromedio:
-                agt.totalRetiros > 0
-                  ? Number(
-                      ((agt.retirosCumplidos / agt.totalRetiros) * 100).toFixed(
-                        1,
-                      ),
-                    )
-                  : 0,
-              tiempoPromedio:
-                agt.totalRetiros > 0
-                  ? Number((agt.tiempoTotalMins / agt.totalRetiros).toFixed(1))
-                  : 0,
-              puntualidadPromedio: Number(
-                (agt.sumPuntualidad / dias).toFixed(1),
-              ),
-              proactividadPromedio: Number(
-                (agt.sumProactividad / dias).toFixed(1),
-              ),
-              notaFinalPromedio: Number((agt.sumNotaFinal / dias).toFixed(1)),
-            };
-          })
-          .sort((a, b) => b.notaFinalPromedio - a.notaFinalPromedio);
-
-        setReportesMensuales(ranking);
-        setMetricasGlobales({
-          totalOps: globalRetiros,
-          slaGlobal:
-            globalRetiros > 0
-              ? ((globalSlaCumplido / globalRetiros) * 100).toFixed(1)
-              : "0.0",
-          tiempoGlobal:
-            globalRetiros > 0
-              ? (globalTiempoMins / globalRetiros).toFixed(1)
-              : "0.0",
-        });
-
-        // Asignamos las variables de los días
-        setEstadoAuditoria({
-          totalEvals: totalDiasUnicos,
-          confirmadas: diasConfirmados,
-          pendientes: diasPendientes,
-          hayDatos: totalDiasUnicos > 0,
-        });
-      }
-    } catch (error) {
-      toast.error("Error cargando información del mes.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+  const [hoy] = useState(() => new Date());
+  const mesActual = toMesStr(hoy);
+  const [mes, setMes] = useState(() => {
+    const m = searchParams.get("mes");
+    return m && /^\d{4}-(0[1-9]|1[0-2])$/.test(m) && m <= mesActual ? m : mesActual;
+  });
   useEffect(() => {
-    fetchData();
-  }, [mesActual, userData?.rol]);
+    router.replace(`${pathname}?mes=${mes}`, { scroll: false });
+  }, [mes, pathname, router]);
 
-  const handleCerrarMes = async () => {
-    setIsClosing(true);
+  const excluidosHook = useExcluidos(usuario);
+  const excluidosSet = useMemo(
+    () => new Set((excluidosHook.lista ?? []).map(normalizarNombre)),
+    [excluidosHook.lista],
+  );
+  const listo = Boolean(userData) && !excluidosHook.cargando;
+
+  const [version, setVersion] = useState(0);
+  const { cargando, error, actual, previo, tendencia } = useCierreMes({
+    mes,
+    rol,
+    excluidos: excluidosSet,
+    listo,
+    version,
+  });
+
+  const [anioVisible, setAnioVisible] = useState(() => Number(mes.slice(0, 4)));
+  const [pdfAbierto, setPdfAbierto] = useState(false);
+  const estados = useEstadoMeses(anioVisible, rol, listo, version);
+
+  const nombreMes = capitalizar(format(parseMesStr(mes), "LLLL yyyy", { locale: es }));
+  const nombreAnterior = format(addMonths(parseMesStr(mes), -1), "LLLL", { locale: es });
+
+  // Estado del mes
+  let chip: Chip | null = null;
+  if (actual) {
+    const terminado = mes < mesActual;
+    const listoParaCerrar =
+      terminado && actual.vivo.diasTotales > 0 && actual.vivo.diasPendientes.length === 0;
+    chip = actual.cerrado
+      ? { label: "Cerrado", className: "bg-success-soft text-success-text" }
+      : mes === mesActual
+        ? { label: "En curso", className: "bg-brand-soft text-brand" }
+        : listoParaCerrar
+          ? { label: "Listo para cerrar", className: "bg-warning-soft text-warning-text" }
+          : { label: "Pendiente", className: "bg-warning-soft text-warning-text" };
+  }
+
+  // Permiso para reabrir: admin o quien cerró.
+  const doc_ = actual?.documento ?? null;
+  const permisoReabrir = !doc_
+    ? null
+    : rol.isAdmin
+      ? "Puedes reabrirlo como administrador."
+      : (doc_.cerradoPorUid && doc_.cerradoPorUid === user?.uid) ||
+          (!doc_.cerradoPorUid && doc_.cerradoPor === userData?.nombre)
+        ? "Puedes reabrirlo porque tú lo cerraste."
+        : null;
+
+  const refCierre = () => doc(db, "evaluaciones_mensuales", idCierre(mes, rol));
+
+  const cerrar = async () => {
+    if (!actual || !user) return;
+    const ahora = new Date().toISOString();
     try {
-      const cierreDocId = isAdmin ? mesActual : `${mesActual}_${grupoUsuario}`;
-
-      await setDoc(doc(db, "evaluaciones_mensuales", cierreDocId), {
-        mes: mesActual,
-        grupo: isAdmin ? "Global" : grupoUsuario,
-        cerradoEl: new Date().toISOString(),
-        cerradoPor: userData?.nombre || "Sistema",
-        metrics: metricasGlobales,
-        ranking: reportesMensuales,
-      });
-
-      toast.success("Mes Cerrado", {
-        description: "Los promedios mensuales han sido guardados.",
-      });
-      await fetchData();
-    } catch (error) {
-      toast.error("Error al cerrar el mes en Firebase.");
-    } finally {
-      setIsClosing(false);
-    }
-  };
-
-  const handleExportExcel = () => {
-    const dataToExport = reportesMensuales.map((r) => ({
-      Operador: r.operador,
-      "Días Trabajados": r.diasTrabajados,
-      "Total Retiros": r.totalRetiros,
-      "SLA Mensual (%)": r.slaPromedio,
-      "Tiempo Prom. (min)": r.tiempoPromedio,
-      "Puntualidad Prom.": r.puntualidadPromedio,
-      "Proactividad Prom.": r.proactividadPromedio,
-      "Nota Final Mensual": r.notaFinalPromedio,
-      "Días con Inconvenientes": r.inconvenientes,
-    }));
-    const ws = xlsx.utils.json_to_sheet(dataToExport);
-    const wb = xlsx.utils.book_new();
-    xlsx.utils.book_append_sheet(wb, ws, "Cierre");
-    xlsx.writeFile(wb, `Cierre_Mensual_${mesActual}.xlsx`);
-  };
-
-  const handleGenerarEnlace = async (operador: string, mes: string) => {
-    try {
-      // 1. Buscamos si ya le habíamos generado un enlace a este operador en este mes
-      const q = query(
-        collection(db, "enlaces_expedientes"),
-        where("operador", "==", operador),
-        where("mes", "==", mes),
-      );
-      const snap = await getDocs(q);
-      let linkId = "";
-
-      if (!snap.empty) {
-        linkId = snap.docs[0].id; // Ya existe, usamos el mismo
-      } else {
-        // 2. No existe, creamos un documento nuevo (Firebase genera un ID único automático)
-        const newRef = doc(collection(db, "enlaces_expedientes"));
-        await setDoc(newRef, {
-          operador,
+      await setDoc(
+        refCierre(),
+        {
           mes,
-          creadoEl: new Date().toISOString(),
-          creadoPor: userData?.nombre || "Admin",
-        });
-        linkId = newRef.id;
-      }
-
-      // 3. Copiamos al portapapeles
-      const url = `${window.location.origin}/evaluacion-operador/${linkId}`;
-      await navigator.clipboard.writeText(url);
-
-      toast.success("Enlace copiado", {
-        description: `Se copió el enlace de ${operador} al portapapeles.`,
-      });
-    } catch (error) {
-      toast.error("Error al generar el enlace.");
+          grupo: grupoCierre,
+          estado: "cerrado",
+          cerradoEl: ahora,
+          cerradoPor: usuario,
+          cerradoPorUid: user.uid,
+          metrics: actual.vivo.metrics,
+          ranking: actual.vivo.ranking,
+          excluidos: excluidosHook.lista ?? [],
+          historial: arrayUnion({ accion: "cierre", por: usuario, porUid: user.uid, el: ahora }),
+        },
+        { merge: true },
+      );
+      toast.success(`${nombreMes} cerrado · ranking guardado`);
+      setVersion((v) => v + 1);
+    } catch (err) {
+      console.error("Error al cerrar el mes:", err);
+      toast.error("Error al cerrar el mes en Firebase.");
     }
+  };
+
+  const reabrir = async (motivo: string) => {
+    if (!doc_ || !user) return;
+    const ahora = new Date().toISOString();
+    try {
+      await updateDoc(refCierre(), {
+        estado: "reabierto",
+        historial: arrayUnion({
+          accion: "reapertura",
+          por: usuario,
+          porUid: user.uid,
+          el: ahora,
+          motivo,
+          snapshotAnterior: {
+            metrics: doc_.metrics,
+            ranking: doc_.ranking,
+            cerradoEl: doc_.cerradoEl,
+            cerradoPor: doc_.cerradoPor,
+          },
+        }),
+        cerradoEl: null,
+        cerradoPor: null,
+        cerradoPorUid: null,
+      });
+      toast.success(
+        `Cierre de ${format(parseMesStr(mes), "LLLL", { locale: es })} reabierto por ${usuario}`,
+      );
+      setVersion((v) => v + 1);
+    } catch (err) {
+      console.error("Error al reabrir el cierre:", err);
+      toast.error("No se pudo reabrir el cierre. Revisa tus permisos.");
+    }
+  };
+
+  const datosExport = actual && {
+    mes,
+    nombreMes,
+    grupo: panel,
+    cerrado: actual.cerrado,
+    cerradoEl: doc_?.cerradoEl ?? null,
+    cerradoPor: doc_?.cerradoPor ?? null,
+    ranking: actual.ranking,
+    metrics: actual.metrics,
+    previo: previo?.metrics ?? null,
+    excluidos: actual.cerrado && doc_?.excluidos.length ? doc_.excluidos : excluidosHook.lista ?? [],
+    usuario,
   };
 
   return (
-    <div
-      id="cierre-mensual-global"
-      className={cn(
-        "p-6 mx-auto space-y-8 animate-in fade-in duration-500 print:p-0 print:max-w-full print:bg-white",
-        isExportingPDF && exportingType === "GLOBAL"
-          ? "absolute top-0 left-0 w-[1200px] min-w-[1200px] bg-[#f8fafc] z-[9998] shadow-none"
-          : "max-w-7xl",
-      )}
-    >
-      {isExportingPDF && (
-        <div
-          data-html2canvas-ignore="true"
-          className="fixed inset-0 z-[9999] bg-slate-900/60 backdrop-blur-sm flex flex-col items-center justify-center"
-        >
-          <div className="bg-white p-8 rounded-2xl shadow-2xl flex flex-col items-center animate-in zoom-in-95">
-            <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
-            <h2 className="text-xl font-bold text-slate-800">Generando PDF</h2>
-            <p className="text-slate-500 mt-2 text-center max-w-[250px]">
-              Ajustando pantalla y tablas para evitar recortes...
-            </p>
+    <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-4 px-4 pb-9 pt-6 md:px-7">
+      {/* Encabezado */}
+      <div className="flex flex-wrap items-end justify-between gap-3.5">
+        <div className="flex flex-col gap-0.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-[26px] font-bold leading-tight tracking-tight">
+              Cierre mensual
+            </h1>
+            {chip && (
+              <span className={cn("rounded-full px-2.5 py-[3px] text-xs font-semibold", chip.className)}>
+                {chip.label}
+              </span>
+            )}
           </div>
-        </div>
-      )}
-      <style>{`
-        @media print {
-          @page { size: landscape; margin: 8mm; }
-          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          body { zoom: 0.90; }
-          table { width: 100% !important; max-width: 100% !important; table-layout: auto !important; }
-        }
-      `}</style>
-
-      <div className="flex flex-col md:flex-row justify-between md:items-end gap-4 bg-white p-5 rounded-lg border shadow-sm print:hidden">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-            <Award className="w-8 h-8 text-primary" /> Cierre Mensual{" "}
-            {isAdmin ? "" : isInter ? "Internacional" : "Nacional"}
-          </h1>
-          <p className="text-slate-500 mt-1">
-            Revisión de métricas exactas y evaluación final por operador.
+          <p className="text-muted-foreground">
+            Panel {panel} · {nombreMes}
           </p>
         </div>
-
-        <div
-          className="flex flex-wrap items-center gap-3"
-          data-html2canvas-ignore="true"
-        >
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-slate-600 print:hidden">
-              Periodo:
-            </span>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="w-[180px] justify-start text-left font-normal bg-white print:border-none print:shadow-none print:p-0 print:text-xl print:font-bold"
-                >
-                  <CalendarDays className="mr-2 h-4 w-4 print:hidden" />
-                  {format(
-                    new Date(
-                      parseInt(mesActual.split("-")[0]),
-                      parseInt(mesActual.split("-")[1]) - 1,
-                      1,
-                    ),
-                    "MMMM yyyy",
-                    { locale: es },
-                  ).replace(/^\w/, (c) => c.toUpperCase())}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-64 p-3" align="start">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setPickerYear((y) => y - 1)}
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </Button>
-                  <div className="font-bold text-slate-800">{pickerYear}</div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setPickerYear((y) => y + 1)}
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {mesesNombres.map((mes, idx) => {
-                    const val = `${pickerYear}-${String(idx + 1).padStart(2, "0")}`;
-                    return (
-                      <Button
-                        key={mes}
-                        variant={mesActual === val ? "default" : "ghost"}
-                        className="h-9"
-                        onClick={() => setMesActual(val)}
-                      >
-                        {mes}
-                      </Button>
-                    );
-                  })}
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
-          {mesCerrado && (
-            <>
-              <Button
-                variant="outline"
-                onClick={handleExportExcel}
-                className="h-10 border-slate-200 text-slate-700 hover:text-emerald-700 hover:bg-emerald-50"
-              >
-                <Download className="w-4 h-4 mr-2 text-emerald-600" /> XLSX
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => handleExportPDF("GLOBAL")}
-                className="h-10 border-slate-200 text-slate-700 hover:text-rose-700 hover:bg-rose-50"
-              >
-                <Printer className="w-4 h-4 mr-2 text-rose-600" /> PDF
-              </Button>
-            </>
-          )}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <MonthPicker
+            mes={mes}
+            mesActual={mesActual}
+            onChange={(m) => {
+              setMes(m);
+              setAnioVisible(Number(m.slice(0, 4)));
+            }}
+            estados={estados}
+            onAnioVisible={setAnioVisible}
+          />
+          <span aria-hidden className="h-6 w-px bg-border" />
+          <PdfButton disabled={!datosExport} onClick={() => setPdfAbierto(true)} />
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="flex justify-center p-20">
-          <Loader2 className="w-10 h-10 animate-spin text-slate-300" />
+      {cargando || !listo ? (
+        <div className="flex flex-col gap-4" aria-hidden>
+          <Skeleton className="h-[110px] rounded-xl" />
+          <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr))]">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-[118px] rounded-xl" />
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-3.5">
+            <Skeleton className="h-[320px] min-w-0 flex-[1_1_380px] rounded-xl" />
+            <Skeleton className="h-[320px] min-w-0 flex-[1.4_1_460px] rounded-xl" />
+          </div>
+          <Skeleton className="h-[400px] rounded-xl" />
         </div>
+      ) : error || !actual ? (
+        <section className={cn(cardClass, "py-12 text-center text-muted-foreground")}>
+          No se pudo cargar la información del mes. Inténtalo de nuevo.
+        </section>
       ) : (
         <>
-          {!mesCerrado && estadoAuditoria && (
-            <Card
-              className={cn(
-                "border-2 shadow-md animate-in fade-in",
-                estadoAuditoria.pendientes === 0 && mesYaTermino
-                  ? "border-emerald-200"
-                  : "border-amber-200",
-              )}
-            >
-              <CardHeader
-                className={
-                  estadoAuditoria.pendientes === 0 && mesYaTermino
-                    ? "bg-emerald-50/50"
-                    : "bg-amber-50/50"
-                }
-              >
-                <CardTitle className="flex items-center gap-2">
-                  {estadoAuditoria.pendientes === 0 && mesYaTermino ? (
-                    <CheckCircle2 className="text-emerald-500" />
-                  ) : (
-                    <AlertCircle className="text-amber-500" />
-                  )}
-                  Auditoría de Pre-Cierre
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                  <div className="p-4 rounded-lg border bg-slate-50 border-slate-200">
-                    <div className="text-sm font-semibold text-slate-500 mb-1">
-                      Días Evaluados
-                    </div>
-                    <div className="text-3xl font-bold text-slate-800">
-                      {estadoAuditoria.totalEvals}
-                    </div>
-                  </div>
-                  <div className="p-4 rounded-lg border bg-emerald-50 border-emerald-200">
-                    <div className="text-sm font-semibold text-emerald-600 mb-1">
-                      Confirmados
-                    </div>
-                    <div className="text-3xl font-bold text-emerald-700">
-                      {estadoAuditoria.confirmadas}
-                    </div>
-                  </div>
-                  <div
-                    className={cn(
-                      "p-4 rounded-lg border",
-                      estadoAuditoria.pendientes > 0
-                        ? "bg-amber-50 border-amber-300 shadow-sm"
-                        : "bg-slate-50 border-slate-200",
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "text-sm font-semibold mb-1",
-                        estadoAuditoria.pendientes > 0
-                          ? "text-amber-700"
-                          : "text-slate-500",
-                      )}
-                    >
-                      Pendientes
-                    </div>
-                    <div
-                      className={cn(
-                        "text-3xl font-bold",
-                        estadoAuditoria.pendientes > 0
-                          ? "text-amber-600"
-                          : "text-slate-400",
-                      )}
-                    >
-                      {estadoAuditoria.pendientes}
-                    </div>
-                  </div>
-                </div>
-
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      disabled={
-                        estadoAuditoria.pendientes > 0 ||
-                        !mesYaTermino ||
-                        isClosing
-                      }
-                      className={cn(
-                        "w-full h-12 text-lg transition-all",
-                        estadoAuditoria.pendientes === 0 && mesYaTermino
-                          ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-md"
-                          : "bg-slate-100 text-slate-400 border border-slate-200",
-                      )}
-                    >
-                      {isClosing ? (
-                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      ) : (
-                        <Lock className="w-5 h-5 mr-2" />
-                      )}
-                      Generar Promedios Definitivos y Cerrar Mes
-                    </Button>
-                  </AlertDialogTrigger>
-
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle className="text-xl">
-                        ¿Cerrar el mes de{" "}
-                        {format(
-                          new Date(
-                            parseInt(mesActual.split("-")[0]),
-                            parseInt(mesActual.split("-")[1]) - 1,
-                            1,
-                          ),
-                          "MMMM",
-                          { locale: es },
-                        ).replace(/^\w/, (c) => c.toUpperCase())}
-                        ?
-                      </AlertDialogTitle>
-                      <AlertDialogDescription className="text-base text-slate-600">
-                        Esta acción consolidará los promedios definitivos de
-                        todos los operadores en la base de datos. <br />
-                        <br />
-                        <strong className="text-rose-600">
-                          ⚠️ Esta acción no se puede deshacer.
-                        </strong>{" "}
-                        ¿Estás absolutamente seguro de continuar?
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={handleCerrarMes}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                      >
-                        Sí, cerrar mes
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </CardContent>
-            </Card>
-          )}
-
-          {mesCerrado && reportesMensuales.length > 0 && metricasGlobales && (
-            <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-700 pb-12">
-              <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-xl p-8 text-white shadow-xl relative overflow-hidden print:break-inside-avoid print:shadow-none print:border-none">
-                <div className="absolute top-0 right-0 p-8 opacity-10">
-                  <Trophy className="w-40 h-40" />
-                </div>
-                <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center gap-6">
-                  <div className="bg-amber-400 p-4 rounded-full shadow-lg shadow-amber-500/20">
-                    <Trophy className="w-10 h-10 text-amber-900" />
-                  </div>
-                  <div className="flex-1">
-                    <h2 className="text-amber-400 font-bold uppercase tracking-wider text-sm mb-1">
-                      Mejor Rendimiento del Mes
-                    </h2>
-                    <div className="text-4xl font-extrabold">
-                      {reportesMensuales[0].operador}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-4 mt-3 text-slate-300 text-sm">
-                      <span className="flex items-center">
-                        <Target className="w-4 h-4 mr-1 text-emerald-400" />{" "}
-                        Nota: {reportesMensuales[0].notaFinalPromedio}/10
-                      </span>
-                      <span className="flex items-center">
-                        <TrendingUp className="w-4 h-4 mr-1 text-blue-400" />{" "}
-                        {reportesMensuales[0].totalRetiros.toLocaleString()}{" "}
-                        Retiros
-                      </span>
-                    </div>
-                  </div>
-                  <div className="hidden md:flex gap-4 border-l border-slate-700 pl-6">
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-white">
-                        {metricasGlobales.totalOps.toLocaleString()}
-                      </div>
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider">
-                        Retiros Totales
-                      </div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-emerald-400">
-                        {metricasGlobales.slaGlobal}%
-                      </div>
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider">
-                        SLA Equipo
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <Card className="shadow-lg border-slate-200 print:break-inside-avoid print:shadow-none print:border-none">
-                <CardHeader className="bg-slate-50/50 border-b pb-4 print:bg-transparent print:border-b-2 print:border-slate-800 print:px-0">
-                  <CardTitle className="text-base font-semibold text-slate-700 print:text-black">
-                    Boleta de Calificaciones Oficial
-                  </CardTitle>
-                  <CardDescription className="print:text-slate-700">
-                    Haz clic en el nombre de un operador para ver su rendimiento
-                    detallado.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="p-0 print:pt-4">
-                  <div
-                    className={cn(
-                      "print:overflow-visible print:w-full print:max-w-full",
-                      isExportingPDF && exportingType === "GLOBAL"
-                        ? "overflow-visible w-full"
-                        : "overflow-x-auto",
-                    )}
-                  >
-                    <table className="w-full text-sm text-left print:text-xs">
-                      <thead className="text-xs text-slate-500 uppercase bg-white border-b print:text-black print:border-slate-400">
-                        <tr>
-                          <th className="px-6 py-4 font-semibold print:px-2 print:py-2">
-                            Operador
-                          </th>
-                          <th className="px-4 py-4 font-semibold text-center print:px-2 print:py-2">
-                            Asistencia
-                          </th>
-                          <th className="px-4 py-4 font-semibold text-center print:px-2 print:py-2">
-                            SLA Mensual
-                          </th>
-                          <th className="px-4 py-4 font-semibold text-center print:px-2 print:py-2">
-                            Tiempo Prom.
-                          </th>
-                          <th className="px-4 py-4 font-semibold text-center border-l bg-slate-50 print:bg-transparent print:px-2 print:py-2">
-                            Nota Definitiva
-                          </th>
-                          <th className="print:hidden px-4 py-4 font-semibold text-center border-l bg-slate-50 print:bg-transparent print:px-2 print:py-2">Enlace</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {reportesMensuales.map((rep, idx) => (
-                          <tr
-                            key={idx}
-                            className={cn(
-                              "border-b hover:bg-slate-50/50 transition-colors print:border-slate-300",
-                              idx === 0
-                                ? "bg-amber-50/20 print:bg-amber-50/40"
-                                : "",
-                            )}
-                          >
-                            <td
-                              className="px-6 py-4 print:px-2 print:py-2 cursor-pointer hover:bg-blue-50 transition-colors group"
-                              onClick={() =>
-                                router.push(
-                                  `/expediente/${encodeURIComponent(rep.operador)}?mes=${mesActual}`,
-                                )
-                              }
-                            >
-                              <div className="flex items-center gap-2 font-bold text-blue-600 group-hover:text-blue-800 underline-offset-4 group-hover:underline print:text-black print:no-underline">
-                                {idx === 0 && (
-                                  <Trophy className="w-4 h-4 text-amber-500 print:hidden" />
-                                )}
-                                {rep.operador}
-                              </div>
-                              <div className="text-xs text-slate-500 mt-1 font-medium print:text-slate-600">
-                                {rep.totalRetiros.toLocaleString()} retiros
-                                totales
-                              </div>
-                            </td>
-                            <td className="px-4 py-4 text-center print:px-2 print:py-2">
-                              <div className="text-slate-700 font-bold print:text-black">
-                                {rep.diasTrabajados} días
-                              </div>
-                              {rep.turnosIncompletos > 0 && (
-                                <div className="text-[10px] text-amber-600 mt-1 print:text-amber-700">
-                                  ({rep.turnosIncompletos} salidas)
-                                </div>
-                              )}
-                            </td>
-                            <td className="px-4 py-4 text-center print:px-2 print:py-2">
-                              <span
-                                className={`px-2.5 py-1 rounded text-xs font-bold ${rep.slaPromedio >= 90 ? "bg-emerald-100 text-emerald-700 print:border print:border-emerald-300" : rep.slaPromedio >= 75 ? "bg-amber-100 text-amber-700 print:border print:border-amber-300" : "bg-rose-100 text-rose-700 print:border print:border-rose-300"}`}
-                              >
-                                {rep.slaPromedio}%
-                              </span>
-                            </td>
-                            <td className="px-4 py-4 text-center font-bold text-slate-600 print:px-2 print:py-2 print:text-black">
-                              {rep.tiempoPromedio} min
-                            </td>
-                            <td className="px-4 py-4 text-center border-l bg-slate-50/50 print:bg-transparent print:border-slate-300 print:px-2 print:py-2">
-                              <div
-                                className={`text-2xl font-black ${rep.notaFinalPromedio >= 8 ? "text-emerald-600 print:text-emerald-700" : rep.notaFinalPromedio >= 6 ? "text-amber-500 print:text-amber-600" : "text-rose-600 print:text-rose-700"}`}
-                              >
-                                {rep.notaFinalPromedio.toFixed(1)}
-                              </div>
-                            </td>
-                            <td className="px-4 py-4 text-center border-l bg-slate-50/50 print:bg-transparent print:border-slate-300 print:px-2 print:py-2 print:hidden">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation(); // Evita que se abra la vista normal de admin al hacer clic
-                                  handleGenerarEnlace(rep.operador, mesActual);
-                                }}
-                                className="border-blue-200 text-blue-600 hover:bg-blue-50"
-                              >
-                                <LinkIcon className="w-4 h-4" />
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
+          <ClosingSteps
+            mes={mes}
+            mesActual={mesActual}
+            hoy={hoy}
+            vivo={actual.vivo}
+            cerrado={actual.cerrado}
+            documento={actual.documento}
+            permisoReabrir={permisoReabrir}
+            resumen={{ ranking: actual.vivo.ranking, metrics: actual.vivo.metrics }}
+            onCerrar={cerrar}
+            onReabrir={reabrir}
+          />
+          <MonthKpis m={actual.metrics} previo={previo?.metrics ?? null} nombreAnterior={nombreAnterior} />
+          <div className="flex flex-wrap items-stretch gap-3.5">
+            <TopOperatorCard
+              className="min-w-0 flex-[1_1_380px]"
+              ranking={actual.ranking}
+              cerrado={actual.cerrado}
+              enCurso={mes === mesActual}
+            />
+            <TeamTrend
+              className="min-w-0 flex-[1.4_1_460px]"
+              meses={tendencia}
+              mesActual={mesActual}
+            />
+          </div>
+          <RankingTable
+            ranking={actual.ranking}
+            mes={mes}
+            cerrado={actual.cerrado}
+            cantidadExcluidos={
+              actual.cerrado && doc_?.excluidos.length
+                ? doc_.excluidos.length
+                : (excluidosHook.lista ?? []).length
+            }
+            onCopiarEnlace={(op) => copiarEnlaceExpediente(op, mes, usuario)}
+          />
         </>
       )}
+
+      <ExportPdfDialog
+        open={pdfAbierto}
+        onOpenChange={setPdfAbierto}
+        titulo="Exportar cierre del mes"
+        doc={pdfAbierto && datosExport ? documentoCierre(datosExport) : null}
+        aviso={
+          datosExport &&
+          !datosExport.cerrado &&
+          "El mes aún no está cerrado. El PDF sale marcado como PRELIMINAR."
+        }
+      />
     </div>
+  );
+}
+
+export default function CierreMensualPage() {
+  return (
+    <Suspense>
+      <CierreContent />
+    </Suspense>
   );
 }

@@ -1,852 +1,191 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { collection, query, where, getDocs } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { useCurrency } from "../context/CurrencyContext";
-import { isExonerated } from "@/lib/utils";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
+import { useState } from "react";
 import type { DateRange } from "react-day-picker";
+import { Banknote, Bot, Clock } from "lucide-react";
+import { useCurrency } from "../context/CurrencyContext";
+import { TIEMPO_META_MIN } from "@/lib/constants";
 import {
-  Activity,
-  Clock,
-  CheckCircle2,
-  Bot,
-  DollarSign,
-  Loader2,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  Users,
-  CalendarRange,
-  Calendar as CalendarIcon,
-} from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+  formatDecimal,
+  formatEntero,
+  formatMontoCompacto,
+  formatMontoCompleto,
+  formatMontoExacto,
+  formatPct,
+} from "@/lib/format";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
-} from "recharts";
+  useDashboardData,
+  type DateFilter,
+  type EstadoDashboard,
+} from "@/components/dashboard/useDashboardData";
+import { PeriodFilter, VipSwitch } from "@/components/dashboard/PeriodFilter";
+import { SlaCard } from "@/components/dashboard/SlaCard";
+import { KpiCard } from "@/components/dashboard/KpiCard";
+import { TrendPill, calcTrend } from "@/components/dashboard/TrendPill";
+import { DailySlaVolumeChart } from "@/components/dashboard/DailySlaVolumeChart";
+import { TeamPerformanceTable } from "@/components/dashboard/TeamPerformanceTable";
+import { VipDistributionCard } from "@/components/dashboard/VipDistributionCard";
+import { DashboardSkeleton } from "@/components/dashboard/DashboardSkeleton";
+import { CopyButton } from "@/components/dashboard/CopyButton";
+import { PendingEvalNotice } from "@/components/evaluacion/PendingEvalNotice";
 
-// Tipos
-interface Metrics {
-  totalTx: number;
-  totalAmount: number;
-  slaPct: number;
-  avgTime: number;
-  autoPct: number;
-  vipTotalTx: number;
-  vipTotalAmount: number;
-  vipSlaPct: number;
-  vipAvgTime: number;
-  vipAutoPct: number;
-}
-interface PeriodComparison {
-  current: Metrics;
-  trend: {
-    totalTx: number;
-    totalAmount: number;
-    slaPct: number;
-    avgTime: number;
-    autoPct: number;
-    vipTotalAmount: number;
-    vipSlaPct: number;
-    vipAvgTime: number;
-    vipAutoPct: number;
-  };
-}
-
-const COLORS = [
-  "#3b82f6",
-  "#10b981",
-  "#f59e0b",
-  "#8b5cf6",
-  "#ef4444",
-  "#06b6d4",
-];
-
-const VIP_LEVELS = ["Nivel 2", "Nivel 3", "Nivel 4"];
+const MENSAJES: Partial<Record<EstadoDashboard, string>> = {
+  "sin-periodo": "Selecciona un rango de fechas para cargar los datos",
+  "rango-incompleto": "Selecciona la fecha de inicio y fin para cargar los datos",
+  "sin-datos": "No hay datos procesados para el rango seleccionado",
+  error: "No se pudieron cargar los datos. Intenta de nuevo.",
+};
 
 export default function DashboardPage() {
   const { currency } = useCurrency();
-  const [dateFilter, setDateFilter] = useState<string | null>(null);
-  const [customRange, setCustomRange] = useState<DateRange | undefined>(
-    undefined,
-  );
-  const [isLoading, setIsLoading] = useState(false);
+  const [dateFilter, setDateFilter] = useState<DateFilter | null>(null);
+  const [customRange, setCustomRange] = useState<DateRange | undefined>();
   const [showVipOnly, setShowVipOnly] = useState(false);
 
-  const [metrics, setMetrics] = useState<PeriodComparison | null>(null);
-  const [dailyData, setDailyData] = useState<any[]>([]);
-  const [levelData, setLevelData] = useState<any[]>([]);
-  const [agentData, setAgentData] = useState<any[]>([]);
+  const { estado, periodo, data } = useDashboardData(
+    currency,
+    dateFilter,
+    customRange,
+  );
 
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      if (!currency || !dateFilter) return;
-      setIsLoading(true);
+  const esGlobal = currency === "GLOBAL";
+  const titulo = esGlobal ? "Visión global" : "Visión de rendimiento";
+  const subtitulo = [
+    periodo?.etiqueta ?? "Sin período seleccionado",
+    esGlobal ? "todas las monedas" : `moneda ${currency}`,
+    showVipOnly ? "solo VIP" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
-      try {
-        // 1. Lógica de Fechas
-        const now = new Date();
-        let currStart = new Date(0),
-          currEnd = new Date(),
-          prevStart = new Date(0),
-          prevEnd = new Date(0);
-        const currentYear = now.getFullYear();
-        const currentMonth = now.getMonth();
-
-        if (dateFilter === "current_month") {
-          currStart = new Date(currentYear, currentMonth, 1);
-          currEnd = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59);
-          prevStart = new Date(currentYear, currentMonth - 1, 1);
-          prevEnd = new Date(currentYear, currentMonth, 0, 23, 59, 59);
-        } else if (dateFilter === "last_month") {
-          currStart = new Date(currentYear, currentMonth - 1, 1);
-          currEnd = new Date(currentYear, currentMonth, 0, 23, 59, 59);
-          prevStart = new Date(currentYear, currentMonth - 2, 1);
-          prevEnd = new Date(currentYear, currentMonth - 1, 0, 23, 59, 59);
-        } else if (dateFilter === "last_3_months") {
-          currStart = new Date(currentYear, currentMonth - 2, 1);
-          currEnd = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59);
-          prevStart = new Date(currentYear, currentMonth - 5, 1);
-          prevEnd = new Date(currentYear, currentMonth - 2, 0, 23, 59, 59);
-        } else if (dateFilter === "custom") {
-          if (!customRange?.from || !customRange?.to) {
-            setMetrics(null);
-            setDailyData([]);
-            setLevelData([]);
-            setAgentData([]);
-            setIsLoading(false);
-            return;
-          }
-          currStart = customRange.from;
-          currEnd = new Date(
-            customRange.to.getFullYear(),
-            customRange.to.getMonth(),
-            customRange.to.getDate(),
-            23,
-            59,
-            59,
-          );
-          const durationMs = currEnd.getTime() - currStart.getTime();
-          prevEnd = new Date(currStart.getTime() - 1000);
-          prevStart = new Date(prevEnd.getTime() - durationMs);
-        }
-
-        // Convert period bounds to local-timezone date strings (YYYY-MM-DD) so
-        // comparison against "Fecha del reporte" never shifts across day boundaries.
-        const toLocalDateStr = (d: Date) =>
-          `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-        const currStartStr = toLocalDateStr(currStart);
-        const currEndStr = toLocalDateStr(currEnd);
-        const prevStartStr = toLocalDateStr(prevStart);
-        const prevEndStr = toLocalDateStr(prevEnd);
-
-        // 2. Consulta a Firebase (Si es GLOBAL, traemos todo; si no, filtramos por moneda)
-        let q;
-        if ((currency as string) === "GLOBAL") {
-          q = query(collection(db, "operaciones_retiros"));
-        } else {
-          q = query(
-            collection(db, "operaciones_retiros"),
-            where("Moneda", "==", currency),
-          );
-        }
-
-        const snapshot = await getDocs(q);
-
-        // Estructuras para cálculos
-        const currentData: any[] = [];
-        const prevData: any[] = [];
-        const dayMap: Record<
-          string,
-          { total: number; sla: number; evaluable: number }
-        > = {};
-        const lvlMap: Record<string, number> = {};
-        const agtMap: Record<
-          string,
-          { total: number; sla: number; evaluable: number }
-        > = {};
-
-        // 3. Procesamiento en Memoria
-        snapshot.forEach((doc) => {
-          const data = doc.data();
-          const reportDateStr = String(data["Fecha del reporte"]).split("T")[0];
-
-          if (
-            dateFilter === "all_time" ||
-            (reportDateStr >= currStartStr && reportDateStr <= currEndStr)
-          ) {
-            currentData.push(data);
-
-            const cumple = data.Cumple === true;
-            const operador = data.Operador || "Desconocido";
-            const nivel = data.Nivel || "Estándar";
-            const evaluable = !isExonerated(data.comentarioBrecha);
-
-            if (!dayMap[reportDateStr])
-              dayMap[reportDateStr] = { total: 0, sla: 0, evaluable: 0 };
-            dayMap[reportDateStr].total++;
-            if (evaluable) {
-              dayMap[reportDateStr].evaluable++;
-              if (cumple) dayMap[reportDateStr].sla++;
-            }
-
-            if (!lvlMap[nivel]) lvlMap[nivel] = 0;
-            lvlMap[nivel]++;
-
-            if (operador !== "Autopago") {
-              if (!agtMap[operador])
-                agtMap[operador] = { total: 0, sla: 0, evaluable: 0 };
-              agtMap[operador].total++;
-              if (evaluable) {
-                agtMap[operador].evaluable++;
-                if (cumple) agtMap[operador].sla++;
-              }
-            }
-          } else if (reportDateStr >= prevStartStr && reportDateStr <= prevEndStr) {
-            prevData.push(data);
-          }
-        });
-
-        // 4. Funciones de Cálculo de Métricas Ponderadas
-        const calcMetrics = (dataset: any[]): Metrics => {
-          let tx = 0,
-            amount = 0,
-            slaCount = 0,
-            time = 0,
-            autoCount = 0,
-            evaluableTx = 0,
-            vipTx = 0,
-            vipAmount = 0,
-            vipAutoCount = 0,
-            vipEvaluableTx = 0,
-            vipSlaCount = 0,
-            vipTime = 0;
-          dataset.forEach((d) => {
-            tx++;
-            amount += (Number(d.Cantidad) || 0) / 100;
-            const isAuto = d.Operador === "Autopago";
-            if (isAuto) autoCount++;
-            const evaluable = !isExonerated(d.comentarioBrecha);
-            if (evaluable) {
-              evaluableTx++;
-              time += Number(d.Tiempo) || 0;
-              if (d.Cumple) slaCount++;
-            }
-
-            if (VIP_LEVELS.includes(String(d.Nivel).trim())) {
-              vipTx++;
-              vipAmount += (Number(d.Cantidad) || 0) / 100;
-              if (isAuto) vipAutoCount++;
-              if (evaluable) {
-                vipEvaluableTx++;
-                vipTime += Number(d.Tiempo) || 0;
-                if (d.Cumple) vipSlaCount++;
-              }
-            }
-          });
-          return {
-            totalTx: tx,
-            totalAmount: amount,
-            slaPct: evaluableTx > 0 ? (slaCount / evaluableTx) * 100 : 0,
-            avgTime: evaluableTx > 0 ? time / evaluableTx : 0,
-            autoPct: tx > 0 ? (autoCount / tx) * 100 : 0,
-            vipTotalTx: vipTx,
-            vipTotalAmount: vipAmount,
-            vipSlaPct: vipEvaluableTx > 0 ? (vipSlaCount / vipEvaluableTx) * 100 : 0,
-            vipAvgTime: vipEvaluableTx > 0 ? vipTime / vipEvaluableTx : 0,
-            vipAutoPct: vipTx > 0 ? (vipAutoCount / vipTx) * 100 : 0,
-          };
-        };
-
-        const curr = calcMetrics(currentData);
-        const prev = calcMetrics(prevData);
-
-        // 5. Cálculo de Tendencias (Porcentajes de cambio)
-        const calcTrend = (c: number, p: number) => {
-          if (p === 0) return c > 0 ? 100 : 0;
-          return ((c - p) / p) * 100;
-        };
-
-        setMetrics({
-          current: curr,
-          trend: {
-            totalTx: calcTrend(curr.totalTx, prev.totalTx),
-            totalAmount: calcTrend(curr.totalAmount, prev.totalAmount),
-            slaPct: curr.slaPct - prev.slaPct, // Puntos porcentuales directos
-            avgTime: calcTrend(curr.avgTime, prev.avgTime),
-            autoPct: curr.autoPct - prev.autoPct,
-            vipTotalAmount: calcTrend(curr.vipTotalAmount, prev.vipTotalAmount),
-            vipSlaPct: curr.vipSlaPct - prev.vipSlaPct,
-            vipAvgTime: calcTrend(curr.vipAvgTime, prev.vipAvgTime),
-            vipAutoPct: curr.vipAutoPct - prev.vipAutoPct,
-          },
-        });
-
-        // 6. Formateo para Gráficos (igual que antes)
-        setDailyData(
-          Object.keys(dayMap)
-            .sort()
-            .map((date) => ({
-              fecha: date.substring(5),
-              volumen: dayMap[date].total,
-              slaPct:
-                dayMap[date].evaluable > 0
-                  ? Math.round((dayMap[date].sla / dayMap[date].evaluable) * 100)
-                  : 0,
-            })),
-        );
-        setLevelData(
-          Object.keys(lvlMap)
-            .map((lvl) => ({ name: lvl, value: lvlMap[lvl] }))
-            .sort((a, b) => b.value - a.value),
-        );
-        setAgentData(
-          Object.keys(agtMap)
-            .map((agt) => ({
-              nombre: agt,
-              total: agtMap[agt].total,
-              slaPct: (
-                agtMap[agt].evaluable > 0
-                  ? (agtMap[agt].sla / agtMap[agt].evaluable) * 100
-                  : 0
-              ).toFixed(1),
-            }))
-            .sort((a, b) => b.total - a.total),
-        );
-      } catch (error) {
-        console.error("Error cargando métricas:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchDashboardData();
-  }, [currency, dateFilter, customRange?.from, customRange?.to]); // Se recalcula si cambia la moneda, el filtro de fecha, o el rango personalizado
-
-  // Formateadores
-  const formatMoney = (amount: number, currencyCode: string) => {
-    const code = currencyCode === "GLOBAL" ? "USD" : currencyCode; // Asumimos USD base si es Global
-    return new Intl.NumberFormat("es-CL", {
-      style: "currency",
-      currency: code,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
-
-  // Renderizador de píldora de tendencia
-  const renderTrend = (
-    value: number,
-    reverseColors = false,
-    isPoints = false,
-  ) => {
-    if (dateFilter === "all_time") return null; // No hay comparación en histórico
-
-    const isPositive = value > 0.1;
-    const isNegative = value < -0.1;
-    const color = isPositive
-      ? reverseColors
-        ? "text-rose-600"
-        : "text-emerald-600"
-      : isNegative
-        ? reverseColors
-          ? "text-emerald-600"
-          : "text-rose-600"
-        : "text-slate-500";
-    const bgColor = isPositive
-      ? reverseColors
-        ? "bg-rose-50"
-        : "bg-emerald-50"
-      : isNegative
-        ? reverseColors
-          ? "bg-emerald-50"
-          : "bg-rose-50"
-        : "bg-slate-100";
-    const Icon = isPositive ? TrendingUp : isNegative ? TrendingDown : Minus;
-    const sign = isPositive ? "+" : "";
-
-    return (
-      <div
-        className={`flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full ${color} ${bgColor}`}
-      >
-        <Icon className="w-3 h-3 mr-1" />
-        {sign}
-        {value.toFixed(1)}
-        {isPoints ? " pts" : "%"}
-      </div>
-    );
-  };
+  const vista = data ? data[showVipOnly ? "vip" : "todos"] : null;
+  const sinTendencia = !periodo?.etiquetaAnterior;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 pb-12">
-      {/* Cabecera con Filtro de Fechas */}
-      <div className="flex flex-col md:flex-row justify-between md:items-end gap-4 bg-white p-5 rounded-lg border shadow-sm">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-            <Activity className="w-8 h-8 text-primary" />{" "}
-            {(currency as string) === "GLOBAL"
-              ? "Visión Global (Todas las Monedas)"
-              : "Visión de Rendimiento"}
+    <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-4 px-4 pb-9 pt-6 md:px-7">
+      <PendingEvalNotice />
+
+      {/* Encabezado */}
+      <div className="flex flex-wrap items-end justify-between gap-3.5">
+        <div className="flex flex-col gap-0.5">
+          <h1 className="text-[26px] font-bold leading-tight tracking-tight">
+            {titulo}
           </h1>
-          <p className="text-slate-500 mt-1">
-            Análisis operativo para{" "}
-            <strong className="text-primary">{currency}</strong>.
-          </p>
+          <p className="text-muted-foreground">{subtitulo}</p>
         </div>
-
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-          <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
-            <CalendarRange className="w-4 h-4 text-slate-500" />
-            <Select
-              value={dateFilter ?? undefined}
-              onValueChange={setDateFilter}
-            >
-              <SelectTrigger className="w-[180px] h-9 bg-white border-slate-300 text-sm font-medium">
-                <SelectValue placeholder="Selecciona un rango" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="current_month">Mes Actual</SelectItem>
-                <SelectItem value="last_month">Mes Anterior</SelectItem>
-                <SelectItem value="last_3_months">Últimos 3 Meses</SelectItem>
-                <SelectItem value="all_time">Histórico Completo</SelectItem>
-                <SelectItem value="custom">Rango Personalizado</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {dateFilter === "custom" && (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="h-9 justify-start text-left font-normal bg-white border-slate-300 text-sm"
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {customRange?.from && customRange?.to ? (
-                      `${format(customRange.from, "dd MMM", { locale: es })} – ${format(customRange.to, "dd MMM yyyy", { locale: es })}`
-                    ) : (
-                      <span>Selecciona un rango</span>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="end">
-                  <Calendar
-                    mode="range"
-                    selected={customRange}
-                    onSelect={setCustomRange}
-                    numberOfMonths={2}
-                    locale={es}
-                  />
-                </PopoverContent>
-              </Popover>
-            )}
-          </div>
-
-          <label className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 cursor-pointer select-none">
-            <span className="text-sm font-medium text-slate-600">
-              Solo VIP
-            </span>
-            <div className="relative inline-flex items-center">
-              <input
-                type="checkbox"
-                className="sr-only peer"
-                checked={showVipOnly}
-                onChange={(e) => setShowVipOnly(e.target.checked)}
-              />
-              <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500" />
-            </div>
-          </label>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <PeriodFilter
+            dateFilter={dateFilter}
+            setDateFilter={setDateFilter}
+            customRange={customRange}
+            setCustomRange={setCustomRange}
+          />
+          <VipSwitch checked={showVipOnly} onCheckedChange={setShowVipOnly} />
         </div>
       </div>
 
-      {!dateFilter ? (
-        <div className="flex flex-col justify-center items-center h-64 bg-slate-50 rounded-xl border border-dashed border-slate-300">
-          <CalendarIcon className="w-10 h-10 text-slate-400 mb-2" />
-          <p className="text-slate-500 font-medium">
-            Selecciona un rango de fechas para cargar los datos.
-          </p>
-        </div>
-      ) : isLoading ? (
-        <div className="flex justify-center items-center h-64 bg-white rounded-xl border shadow-sm">
-          <Loader2 className="w-10 h-10 animate-spin text-primary" />
-          <span className="ml-3 text-slate-500 font-medium">
-            Procesando cubos de datos...
-          </span>
-        </div>
-      ) : !metrics || metrics.current.totalTx === 0 ? (
-        <div className="flex flex-col justify-center items-center h-64 bg-slate-50 rounded-xl border border-dashed border-slate-300">
-          <DollarSign className="w-10 h-10 text-slate-400 mb-2" />
-          <p className="text-slate-500 font-medium">
-            No hay datos procesados para el rango seleccionado.
-          </p>
-        </div>
-      ) : (
+      {vista && periodo ? (
         <>
-          {/* NIVEL 1: KPIs con Tendencias */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Card className="shadow-sm border-slate-200">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-semibold text-slate-600">
-                  SLA de Cumplimiento
-                </CardTitle>
-                <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-end justify-between">
-                  <div className="text-3xl font-bold text-slate-800">
-                    {(showVipOnly
-                      ? metrics.current.vipSlaPct
-                      : metrics.current.slaPct
-                    ).toFixed(1)}
-                    %
-                  </div>
-                  {renderTrend(
-                    showVipOnly ? metrics.trend.vipSlaPct : metrics.trend.slaPct,
-                    false,
-                    true,
-                  )}
-                </div>
-                <p className="text-xs text-slate-500 mt-2">
-                  {showVipOnly
-                    ? "Retiros VIP bajo 25 minutos"
-                    : "Retiros bajo 25 minutos"}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-sm border-slate-200">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-semibold text-slate-600">
-                  Tiempo Promedio
-                </CardTitle>
-                <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center">
-                  <Clock className="w-4 h-4 text-amber-600" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-end justify-between">
-                  <div className="text-3xl font-bold text-slate-800">
-                    {(showVipOnly
-                      ? metrics.current.vipAvgTime
-                      : metrics.current.avgTime
-                    ).toFixed(1)}{" "}
-                    <span className="text-lg font-medium text-slate-500">
-                      min
-                    </span>
-                  </div>
-                  {/* reverseColors = true porque un aumento en tiempo es malo (Rojo) */}
-                  {renderTrend(
-                    showVipOnly
-                      ? metrics.trend.vipAvgTime
-                      : metrics.trend.avgTime,
-                    true,
-                  )}
-                </div>
-                <p className="text-xs text-slate-500 mt-2">
-                  {showVipOnly
-                    ? "Niveles VIP (2, 3, 4)"
-                    : "Tiempo general de resolución"}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-sm border-slate-200">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-semibold text-slate-600">
-                  Volumen Procesado
-                </CardTitle>
-                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                  <DollarSign className="w-4 h-4 text-blue-600" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-end justify-between">
-                  <div
-                    className="text-2xl font-bold text-slate-800 truncate"
-                    title={formatMoney(
-                      showVipOnly
-                        ? metrics.current.vipTotalAmount
-                        : metrics.current.totalAmount,
-                      currency,
-                    )}
-                  >
-                    {(currency as string) === "GLOBAL"
-                      ? "Múltiple"
-                      : formatMoney(
-                          showVipOnly
-                            ? metrics.current.vipTotalAmount
-                            : metrics.current.totalAmount,
-                          currency,
-                        )}
-                  </div>
-                  {renderTrend(
-                    showVipOnly
-                      ? metrics.trend.vipTotalAmount
-                      : metrics.trend.totalAmount,
-                  )}
-                </div>
-                <p className="text-xs text-slate-500 mt-2">
-                  {(showVipOnly
-                    ? metrics.current.vipTotalTx
-                    : metrics.current.totalTx
-                  ).toLocaleString("es-CL")}{" "}
-                  {showVipOnly ? "transacciones VIP" : "transacciones en total"}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-sm border-slate-200">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-semibold text-slate-600">
-                  Automatización
-                </CardTitle>
-                <div className="w-8 h-8 bg-violet-100 rounded-full flex items-center justify-center">
-                  <Bot className="w-4 h-4 text-violet-600" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-end justify-between">
-                  <div className="text-3xl font-bold text-slate-800">
-                    {(showVipOnly
-                      ? metrics.current.vipAutoPct
-                      : metrics.current.autoPct
-                    ).toFixed(1)}
-                    %
-                  </div>
-                  {renderTrend(
-                    showVipOnly
-                      ? metrics.trend.vipAutoPct
-                      : metrics.trend.autoPct,
-                    false,
-                    true,
-                  )}
-                </div>
-                <p className="text-xs text-slate-500 mt-2">
-                  {showVipOnly
-                    ? "Resuelto por Autopago (VIP)"
-                    : "Resuelto por Autopago"}
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* NIVEL 2: GRÁFICOS */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-4 border-t border-slate-200">
-            <Card className="lg:col-span-2 shadow-sm border-slate-200">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold text-slate-700">
-                  Evolución de Volumen Diario
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="h-[300px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart
-                      data={dailyData}
-                      margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
-                    >
-                      <defs>
-                        <linearGradient
-                          id="colorVol"
-                          x1="0"
-                          y1="0"
-                          x2="0"
-                          y2="1"
-                        >
-                          <stop
-                            offset="5%"
-                            stopColor="#3b82f6"
-                            stopOpacity={0.3}
-                          />
-                          <stop
-                            offset="95%"
-                            stopColor="#3b82f6"
-                            stopOpacity={0}
-                          />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        vertical={false}
-                        stroke="#e2e8f0"
+          {/* Fila 1 */}
+          <div className="flex flex-wrap items-stretch gap-3.5">
+            <SlaCard
+              className="flex-[1_1_300px]"
+              actual={vista.actual}
+              anterior={vista.anterior}
+              etiquetaAnterior={periodo.etiquetaAnterior}
+            />
+            <div className="flex min-w-0 flex-[3_1_560px] flex-col gap-3.5">
+              <div className="grid gap-3.5 [grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr))]">
+                <KpiCard
+                  icon={Clock}
+                  iconClassName="text-icon-amber"
+                  title="Tiempo promedio"
+                  value={formatDecimal(vista.actual.tiempo)}
+                  unit="min"
+                  trend={
+                    <TrendPill
+                      hidden={sinTendencia}
+                      value={calcTrend(vista.actual.tiempo, vista.anterior.tiempo)}
+                      unit="%"
+                      goodWhen="down"
+                    />
+                  }
+                  footer={`Meta ${TIEMPO_META_MIN} min · solo gestión manual`}
+                  footerClassName={
+                    vista.actual.tiempo > TIEMPO_META_MIN
+                      ? "text-danger-text"
+                      : undefined
+                  }
+                />
+                <KpiCard
+                  icon={Banknote}
+                  iconClassName="text-icon-blue"
+                  title="Monto procesado"
+                  action={
+                    esGlobal ? undefined : (
+                      <CopyButton
+                        text={formatMontoExacto(vista.actual.monto)}
+                        label="Copiar monto exacto"
                       />
-                      <XAxis
-                        dataKey="fecha"
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fontSize: 12, fill: "#64748b" }}
-                        dy={10}
-                      />
-                      <YAxis
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fontSize: 12, fill: "#64748b" }}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          borderRadius: "8px",
-                          border: "none",
-                          boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                        }}
-                        formatter={(value: any) => [
-                          `${value} retiros`,
-                          "Volumen",
-                        ]}
-                        labelFormatter={(label) => `Día: ${label}`}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="volumen"
-                        stroke="#3b82f6"
-                        strokeWidth={3}
-                        fillOpacity={1}
-                        fill="url(#colorVol)"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="shadow-sm border-slate-200 flex flex-col">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold text-slate-700">
-                  Distribución por Nivel VIP
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex-1 flex items-center justify-center">
-                <div className="h-[250px] w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={levelData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={80}
-                        paddingAngle={5}
-                        dataKey="value"
-                      >
-                        {levelData.map((entry, index) => (
-                          <Cell
-                            key={`cell-${index}`}
-                            fill={COLORS[index % COLORS.length]}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value: any) => [
-                          `${value} retiros`,
-                          "Cantidad",
-                        ]}
-                      />
-                      <Legend
-                        verticalAlign="bottom"
-                        height={36}
-                        iconType="circle"
-                        wrapperStyle={{ fontSize: "12px", color: "#64748b" }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* NIVEL 3: RANKING DE AGENTES */}
-          <Card className="shadow-sm border-slate-200">
-            <CardHeader className="bg-slate-50/50 border-b pb-4">
-              <CardTitle className="text-base font-semibold text-slate-700 flex items-center">
-                <Users className="w-5 h-5 mr-2 text-primary" /> Rendimiento del
-                Equipo (Gestión Manual)
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b">
-                    <tr>
-                      <th className="px-6 py-4 font-semibold">
-                        Agente Operador
-                      </th>
-                      <th className="px-6 py-4 font-semibold text-center">
-                        Retiros Procesados
-                      </th>
-                      <th className="px-6 py-4 font-semibold text-center">
-                        SLA Cumplido (&lt; 25 min)
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {agentData.length > 0 ? (
-                      agentData.map((agente, index) => (
-                        <tr
-                          key={index}
-                          className="bg-white border-b hover:bg-slate-50/50 transition-colors"
-                        >
-                          <td className="px-6 py-4 font-medium text-slate-800">
-                            {agente.nombre}
-                          </td>
-                          <td className="px-6 py-4 text-center font-semibold text-slate-600">
-                            {agente.total}
-                          </td>
-                          <td className="px-6 py-4 text-center">
-                            <span
-                              className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                                Number(agente.slaPct) >= 90
-                                  ? "bg-emerald-100 text-emerald-700"
-                                  : Number(agente.slaPct) >= 75
-                                    ? "bg-amber-100 text-amber-700"
-                                    : "bg-rose-100 text-rose-700"
-                              }`}
-                            >
-                              {agente.slaPct}%
-                            </span>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td
-                          colSpan={3}
-                          className="px-6 py-8 text-center text-slate-500"
-                        >
-                          No hay registros de agentes para esta selección.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                    )
+                  }
+                  value={formatMontoCompacto(vista.actual.monto, currency)}
+                  valueTitle={
+                    esGlobal
+                      ? undefined
+                      : formatMontoCompleto(vista.actual.monto, currency)
+                  }
+                  trend={
+                    <TrendPill
+                      hidden={sinTendencia || esGlobal}
+                      value={calcTrend(vista.actual.monto, vista.anterior.monto)}
+                      unit="%"
+                      goodWhen="up"
+                    />
+                  }
+                  footer={`${formatEntero(vista.actual.total)} ${showVipOnly ? "retiros VIP" : "retiros"}`}
+                />
+                <KpiCard
+                  icon={Bot}
+                  iconClassName="text-icon-violet"
+                  title="Automatización"
+                  value={formatPct(vista.actual.automatizacion)}
+                  trend={
+                    <TrendPill
+                      hidden={sinTendencia}
+                      value={
+                        vista.actual.automatizacion -
+                        vista.anterior.automatizacion
+                      }
+                      unit="pts"
+                      goodWhen="up"
+                    />
+                  }
+                  footer={`${formatEntero(vista.actual.autopago)} por Autopago`}
+                />
               </div>
-            </CardContent>
-          </Card>
+              <DailySlaVolumeChart className="flex-1" data={vista.diaria} />
+            </div>
+          </div>
+
+          {/* Fila 2 */}
+          <div className="flex flex-wrap items-stretch gap-3.5">
+            <TeamPerformanceTable
+              className="min-w-0 flex-[2_1_560px]"
+              operadores={vista.operadores}
+            />
+            <VipDistributionCard
+              className="min-w-0 flex-[1_1_300px]"
+              niveles={vista.niveles}
+              soloVip={showVipOnly}
+            />
+          </div>
         </>
+      ) : (
+        <DashboardSkeleton
+          animado={estado === "cargando"}
+          mensaje={MENSAJES[estado]}
+        />
       )}
     </div>
   );

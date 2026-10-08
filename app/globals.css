@@ -7,9 +7,101 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
   --font-heading: var(--font-sans);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-success: var(--success);
+  --color-success-text: var(--success-text);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-text: var(--warning-text);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-text: var(--danger-text);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-solid: var(--danger-solid);
+  --color-danger-solid-hover: var(--danger-solid-hover);
+  --color-warning-solid: var(--warning-solid);
+  --color-warning-solid-hover: var(--warning-solid-hover);
+  --color-track: var(--track);
+  --color-bar: var(--bar);
+  --color-chart-zone: var(--chart-zone);
+  --color-chart-bar: var(--chart-bar);
+  --color-chart-grid: var(--chart-grid);
+  --color-segment-active: var(--segment-active);
+  --color-skeleton: var(--skeleton);
+  --color-level-0: var(--level-0);
+  --color-level-1: var(--level-1);
+  --color-level-2: var(--level-2);
+  --color-level-3: var(--level-3);
+  --color-icon-green: var(--icon-green);
+  --color-icon-amber: var(--icon-amber);
+  --color-icon-blue: var(--icon-blue);
+  --color-icon-violet: var(--icon-violet);
+  --color-icon-rose: var(--icon-rose);
+  --color-login-bg: var(--login-bg);
+  --color-login-glass: var(--login-glass);
+  --color-login-glass-border: var(--login-glass-border);
+  --color-login-input-bg: var(--login-input-bg);
+  --color-login-focus: var(--login-focus);
+  --color-login-focus-ring: var(--login-focus-ring);
+  --color-day-loaded-bg: var(--day-loaded-bg);
+  --color-day-loaded-border: var(--day-loaded-border);
+  --color-day-missing-bg: var(--day-missing-bg);
+  --color-day-missing-border: var(--day-missing-border);
+  --color-day-today-bg: var(--day-today-bg);
+  --color-day-today-border: var(--day-today-border);
+  --color-day-today-text: var(--day-today-text);
+  --color-day-off-bg: var(--day-off-bg);
+  --color-day-off-text: var(--day-off-text);
+  --color-day-selected-sub-ok: var(--day-selected-sub-ok);
+  --color-day-selected-sub-warn: var(--day-selected-sub-warn);
+  --color-action: var(--action);
+  --color-action-hover: var(--action-hover);
+  --color-action-foreground: var(--action-foreground);
+  --color-chart-in-sla: var(--chart-in-sla);
+  --color-eval-violet: var(--eval-violet);
+  --color-gold: var(--gold);
+}
+
+@theme {
+  --animate-login-float: login-float 10s ease-in-out infinite;
+  --animate-login-enter: login-enter 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  /* Barra indeterminada de la carga por API: avanza hasta 90% en ~30s */
+  --animate-carga-progreso: carga-progreso 30s ease-out forwards;
+
+  @keyframes carga-progreso {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(-10%);
+    }
+  }
+
+  @keyframes login-float {
+    0%,
+    100% {
+      transform: translate(-50%, -44%) perspective(1800px) rotateX(30deg)
+        rotateZ(-9deg);
+    }
+    50% {
+      transform: translate(-50%, -45.2%) perspective(1800px) rotateX(30deg)
+        rotateZ(-9deg);
+    }
+  }
+  @keyframes login-enter {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -49,72 +141,178 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --radius: 0.75rem;
+
+  --background: #EEF0F3;              /* gris frío: las tarjetas blancas resaltan */
+  --foreground: #171717;
+  --card: #FFFFFF;
+  --card-foreground: #171717;
+  --popover: #FFFFFF;
+  --popover-foreground: #171717;
+  --primary: #171717;
+  --primary-foreground: #FAFAFA;
+  --secondary: #E9ECF0;
+  --secondary-foreground: #171717;
+  --muted: #E9ECF0;
+  --muted-foreground: #5C6370;
+  --accent: #E9ECF0;
+  --accent-foreground: #171717;
+  --destructive: #E11D48;
+  --border: #DCDFE4;
+  --input: #D6DAE0;
+  --ring: #A3A3A3;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+
+  --sidebar: #F7F8FA;
+  --sidebar-foreground: #171717;
+  --sidebar-primary: #171717;
+  --sidebar-primary-foreground: #FAFAFA;
+  --sidebar-accent: #FFFFFF;
+  --sidebar-accent-foreground: #171717;
+  --sidebar-border: #DCDFE4;
+  --sidebar-ring: #A3A3A3;
+
+  /* Tokens propios del dashboard */
+  --brand: #0B4FC7;
+  --brand-soft: #E8EEFB;
+  --success: #16A34A;  --success-text: #15803D;  --success-soft: #E7F6EE;
+  --warning: #D97706;  --warning-text: #8A4B00;  --warning-soft: #FDF3E1;
+  --danger:  #E11D48;  --danger-text:  #BE123C;  --danger-soft:  #FCE9E6;
+  /* Botones rellenos con texto blanco (≥ 4,5:1 en ambos temas) */
+  --danger-solid: #E11D48;   --danger-solid-hover: #BE123C;
+  --warning-solid: #B45309;  --warning-solid-hover: #92400E;
+  --track: #E1E4E9;
+  --bar: #D4D4D8;                     /* barras neutras (monitor: brechas por hora) */
+  --chart-zone: rgba(225, 29, 72, 0.07);
+  --chart-bar: #7AA5F5;               /* retiros por día (azul) */
+  --chart-grid: rgba(23, 23, 23, 0.06);
+  --segment-active: #FFFFFF;
+  --skeleton: #E1E4E9;
+  --level-0: #D4D4D4;
+  --level-1: #8DB4FF;
+  --level-2: #2F6FE0;
+  --level-3: #0B3E9C;
+  --icon-green: #0E8A4C;  --icon-amber: #9A5B00;  --icon-blue: #0B4FC7;  --icon-violet: #5B3FC4;
+  --icon-rose: #BE123C;
+
+  /* Login */
+  --login-bg: #F4F4F5;
+  --login-glass: rgba(255, 255, 255, 0.74);
+  --login-glass-border: rgba(23, 23, 23, 0.08);
+  --login-glass-shadow: 0 30px 80px rgba(23, 23, 23, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --login-input-bg: rgba(255, 255, 255, 0.9);
+  --login-vignette-a: rgba(244, 244, 245, 0.25);
+  --login-vignette-b: rgba(244, 244, 245, 0.86);
+  --login-backdrop-opacity: 0.85;
+  --login-backdrop-shadow: 0 60px 120px rgba(23, 23, 23, 0.18);
+  --login-focus: #0B4FC7;
+  --login-focus-ring: rgba(11, 79, 199, 0.18);
+
+  /* Calendario de reportes */
+  --day-loaded-bg: #F0FAF4;      --day-loaded-border: #B7E4C7;
+  --day-missing-bg: #FFF8EC;     --day-missing-border: #F2C27A;
+  --day-today-bg: #F2F6FD;       --day-today-border: #0B4FC7;   --day-today-text: #0B4FC7;
+  --day-off-bg: #F6F6F7;         --day-off-text: #B4B4BA;
+  --day-selected-sub-ok: #4ADE80;  --day-selected-sub-warn: #FBBF24;
+  --action: #0B4FC7;             --action-hover: #083A94;       --action-foreground: #FFFFFF;
+
+  /* Auditoría: retiros por hora dentro de SLA */
+  --chart-in-sla: #2F6FE0;
+  /* Evaluación: aporte de puntualidad en la nota final */
+  --eval-violet: #6D4FD8;
+  /* Cierre: operador del mes */
+  --gold: #B7791F;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --background: #09090B;
+  --foreground: #EDEDEF;
+  --card: #141416;
+  --card-foreground: #EDEDEF;
+  --popover: #1C1C20;               /* modales y menús: un tono sobre las tarjetas */
+  --popover-foreground: #EDEDEF;
+  --primary: #EDEDEF;
+  --primary-foreground: #09090B;
+  --secondary: rgba(255, 255, 255, 0.05);
+  --secondary-foreground: #EDEDEF;
+  --muted: rgba(255, 255, 255, 0.05);
+  --muted-foreground: #9B9BA3;
+  --accent: rgba(255, 255, 255, 0.07);
+  --accent-foreground: #EDEDEF;
+  --destructive: #F43F5E;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.13);
+  --ring: rgba(255, 255, 255, 0.25);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+
+  --sidebar: #0F0F11;
+  --sidebar-foreground: #EDEDEF;
+  --sidebar-primary: #EDEDEF;
+  --sidebar-primary-foreground: #09090B;
+  --sidebar-accent: rgba(255, 255, 255, 0.07);
+  --sidebar-accent-foreground: #EDEDEF;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: rgba(255, 255, 255, 0.25);
+
+  --brand: #5B8DEF;
+  --brand-soft: rgba(91, 141, 239, 0.16);
+  --success: #22C55E;  --success-text: #4ADE80;  --success-soft: rgba(34, 197, 94, 0.14);
+  --warning: #F59E0B;  --warning-text: #FBBF24;  --warning-soft: rgba(245, 158, 11, 0.14);
+  --danger:  #F43F5E;  --danger-text:  #FB7185;  --danger-soft:  rgba(244, 63, 94, 0.14);
+  --track: rgba(255, 255, 255, 0.08);
+  --bar: rgba(255, 255, 255, 0.16);
+  --chart-zone: rgba(244, 63, 94, 0.10);
+  --chart-bar: #3B6FD8;
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --segment-active: #27272A;
+  --skeleton: rgba(255, 255, 255, 0.07);
+  --level-0: #55555C;
+  --level-1: #9CBDFF;
+  --level-2: #5B8DEF;
+  --level-3: #2A5FD0;
+  --icon-green: #4ADE80;  --icon-amber: #FBBF24;  --icon-blue: #7AA5F5;  --icon-violet: #A78BFA;
+  --icon-rose: #FB7185;
+
+  --login-bg: #09090B;
+  --login-glass: rgba(20, 20, 23, 0.72);
+  --login-glass-border: rgba(255, 255, 255, 0.12);
+  --login-glass-shadow: 0 30px 80px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --login-input-bg: rgba(0, 0, 0, 0.25);
+  --login-vignette-a: rgba(9, 9, 11, 0.35);
+  --login-vignette-b: rgba(9, 9, 11, 0.85);
+  --login-backdrop-opacity: 0.6;
+  --login-backdrop-shadow: 0 60px 120px rgba(0, 0, 0, 0.6);
+  --login-focus: #5B8DEF;
+  --login-focus-ring: rgba(91, 141, 239, 0.25);
+
+  --day-loaded-bg: rgba(34, 197, 94, 0.08);   --day-loaded-border: rgba(34, 197, 94, 0.35);
+  --day-missing-bg: rgba(245, 158, 11, 0.08); --day-missing-border: rgba(245, 158, 11, 0.45);
+  --day-today-bg: rgba(91, 141, 239, 0.10);   --day-today-border: rgba(91, 141, 239, 0.55); --day-today-text: #7AA5F5;
+  --day-off-bg: rgba(255, 255, 255, 0.025);   --day-off-text: rgba(237, 237, 239, 0.28);
+  --day-selected-sub-ok: #15803D;  --day-selected-sub-warn: #8A4B00;
+  --action: #2563EB;             --action-hover: #1D4ED8;       --action-foreground: #FFFFFF;
+
+  --chart-in-sla: #5B8DEF;
+  --eval-violet: #A78BFA;
+  --gold: #FBBF24;
+}
+
+/* Si el navegador no soporta backdrop-filter, el vidrio del login se vuelve casi opaco */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --login-glass: rgba(255, 255, 255, 0.96);
+  }
+  .dark {
+    --login-glass: rgba(20, 20, 23, 0.96);
+  }
 }
 
 @layer base {
@@ -126,5 +324,11 @@
   }
   html {
     @apply font-sans;
+  }
+  :root {
+    color-scheme: light;
+  }
+  .dark {
+    color-scheme: dark;
   }
 }

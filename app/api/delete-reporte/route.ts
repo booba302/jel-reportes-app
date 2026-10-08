@@ -1,7 +1,13 @@
 import { NextResponse } from 'next/server';
+import { errorResponse, requireUser } from "@/lib/authServer";
 import { adminDb } from '@/lib/firebaseAdmin';
 
 export async function DELETE(request: Request) {
+  try {
+    await requireUser(request);
+  } catch (e) {
+    return errorResponse(e);
+  }
   try {
     const { searchParams } = new URL(request.url);
     const fecha = searchParams.get('fecha');

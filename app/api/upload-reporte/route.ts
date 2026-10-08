@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { errorResponse, requireUser, type Sesion } from "@/lib/authServer";
 import * as xlsx from "xlsx";
 import { adminDb } from "@/lib/firebaseAdmin";
 
@@ -68,13 +69,21 @@ function transformarFila(
 }
 
 export async function POST(request: Request) {
+  let yo: Sesion;
+  try {
+    yo = await requireUser(request);
+  } catch (e) {
+    return errorResponse(e);
+  }
   try {
     const formData = await request.formData();
     const file = formData.get("file") as File;
     const currency = formData.get("currency") as string;
-    const subidoPor = formData.get("subidoPor") as string;
+    const subidoPor = yo.nombre;
 
-    const rol = (formData.get("rol") as string) || "";
+    const rol = yo.rol;
+    // Opcional: si viene, solo se procesa ese día ("2026-10-03")
+    const fechaEsperada = formData.get("fechaEsperada") as string | null;
 
     if (!file) {
       return NextResponse.json(
@@ -133,6 +142,23 @@ export async function POST(request: Request) {
       reportesAgrupados[dateStr].push(fila);
     }
 
+    if (fechaEsperada) {
+      const clave = `${fechaEsperada}T00:00:00.000Z`;
+      if (!reportesAgrupados[clave]) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: "DATE_MISMATCH",
+            error: `El archivo no contiene retiros del ${fechaEsperada}.`,
+          },
+          { status: 400 },
+        );
+      }
+      // Procesar solo esa fecha
+      for (const k of Object.keys(reportesAgrupados))
+        if (k !== clave) delete reportesAgrupados[k];
+    }
+
     const operacionesRef = adminDb.collection("operaciones_retiros");
     const todasLasOperacionesNuevas = [];
     const historialesNuevos = [];
@@ -187,6 +213,7 @@ export async function POST(request: Request) {
       success: true,
       message: `Archivo procesado con éxito. Se escanearon ${todasLasOperacionesNuevas.length} registros distribuidos en ${fechasProcesadas.length} días.`,
       monedaGuardada: currency,
+      totalRegistros: todasLasOperacionesNuevas.length,
     });
   } catch (error) {
     console.error("Error procesando archivo:", error);
