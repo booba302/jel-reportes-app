@@ -2,9 +2,7 @@
 
 import { authHeaders } from "@/lib/apiFetch";
 import { useCallback, useRef, useState } from "react";
-import { collection, doc, writeBatch } from "firebase/firestore";
 import { toast } from "sonner";
-import { db } from "@/lib/firebase";
 import { formatEntero } from "@/lib/format";
 import { diaCorto } from "./fechas";
 
@@ -21,8 +19,6 @@ export type FallaCarga = {
   detalle?: string;
 };
 
-type Operacion = { idUnico: string; datos: Record<string, unknown> };
-
 type Opciones = {
   currency: string;
   subidoPor: string;
@@ -31,27 +27,6 @@ type Opciones = {
   /** Se llama tras guardar con éxito (refrescar mes, invalidar caché, seleccionar día). */
   onCargado: (dia: string) => void;
 };
-
-/** Guarda las operaciones del API en lotes de 500 y luego el historial (igual que antes). */
-async function guardarEnFirestore(
-  operaciones: Operacion[],
-  historial?: { id: string } & Record<string, unknown>,
-) {
-  const ref = collection(db, "operaciones_retiros");
-  for (let i = 0; i < operaciones.length; i += 500) {
-    const batch = writeBatch(db);
-    for (const item of operaciones.slice(i, i + 500))
-      batch.set(doc(ref, item.idUnico), item.datos, { merge: true });
-    await batch.commit();
-  }
-  if (historial) {
-    const batch = writeBatch(db);
-    batch.set(doc(db, "historial_reportes", historial.id), historial, {
-      merge: true,
-    });
-    await batch.commit();
-  }
-}
 
 export function useCargaReporte({
   currency,
@@ -114,8 +89,9 @@ export function useCargaReporte({
           return;
         }
 
-        const operaciones: Operacion[] = json.operaciones ?? [];
-        if (operaciones.length === 0) {
+        // El servidor ya guardó el día al responder.
+        const total = Number(json.totalRegistros) || 0;
+        if (total === 0) {
           setFalla({
             titulo: "El API no devolvió retiros",
             descripcion: `El API no devolvió retiros para el ${diaCorto(d)}. Puedes intentar de nuevo o cargar el archivo Excel de ese día.`,
@@ -123,11 +99,7 @@ export function useCargaReporte({
           setFase("falla");
           return;
         }
-
-        // Desde aquí no se puede cancelar: no dejar un guardado a medias.
-        setFase("guardando");
-        await guardarEnFirestore(operaciones, json.historial);
-        terminar(d, operaciones.length);
+        terminar(d, total);
       } catch (err) {
         if (abort.signal.aborted) return;
         console.error("Error en la carga por API:", err);

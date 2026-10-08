@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { errorResponse, requireUser, type Sesion } from "@/lib/authServer";
+import { exigirMoneda } from "@/lib/monedasServer";
+import { guardarReporte } from "@/lib/retirosRepo";
+import { filaRetiro, type FilaRetiro } from "@/lib/retirosFila";
 
 // La operación trabaja en hora de Venezuela (UTC-4, sin horario de verano).
 const HORAS_DIFERENCIA = 4;
@@ -54,6 +57,11 @@ export async function POST(request: Request) {
         { success: false, error: "Fecha inválida." },
         { status: 400 },
       );
+    }
+    try {
+      exigirMoneda(yo, currency);
+    } catch (e) {
+      return errorResponse(e);
     }
 
     // "Hoy" en la zona horaria de operación (UTC-HORAS_DIFERENCIA)
@@ -205,32 +213,34 @@ export async function POST(request: Request) {
       });
     }
 
-    if (todasLasOperacionesNuevas.length === 0) {
+    const filas = todasLasOperacionesNuevas
+      .map((o) => filaRetiro(o.idUnico, o.datos))
+      .filter((f): f is FilaRetiro => f !== null);
+
+    if (filas.length === 0) {
       return NextResponse.json({
         success: true,
         message: `No se encontraron operaciones para ${currency} en esta fecha.`,
-        operaciones: [],
+        totalRegistros: 0,
       });
     }
 
-    const [year, month, day] = fecha.split("-");
-    const historialId = `${currency}_${year}-${month}-${day}`;
-
-    const historialData = {
-      id: historialId,
-      fechaReporte: fechaReporte,
-      moneda: currency,
-      subidoEl: new Date().toISOString(),
-      subidoPor: subidoPor || "Extracción API",
-      totalRegistros: todasLasOperacionesNuevas.length,
-    };
+    await guardarReporte(filas, [
+      {
+        id: `${currency}_${fecha}`,
+        fecha_reporte: fecha,
+        moneda: currency,
+        subido_el: new Date().toISOString(),
+        subido_por: subidoPor || "Extracción API",
+        total_registros: filas.length,
+      },
+    ]);
 
     return NextResponse.json({
       success: true,
-      message: `Extracción completada. Listo para guardar ${todasLasOperacionesNuevas.length} operaciones.`,
+      message: `Extracción completada. Se guardaron ${filas.length} operaciones.`,
       monedaGuardada: currency,
-      operaciones: todasLasOperacionesNuevas,
-      historial: historialData,
+      totalRegistros: filas.length,
     });
   } catch (error) {
     console.error("Error en proxy de reportes:", error);

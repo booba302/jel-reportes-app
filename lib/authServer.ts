@@ -1,17 +1,11 @@
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { HttpError } from "@/lib/httpError";
+
+export { HttpError };
 
 /** Quién llama a una ruta de la API. El rol sale SIEMPRE de `usuarios/{uid}`, nunca del body. */
 export type Sesion = { uid: string; nombre: string; rol: string; email: string };
-
-export class HttpError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
 
 export async function requireUser(req: Request): Promise<Sesion> {
   const token = req.headers.get("authorization")?.match(/^Bearer (.+)$/)?.[1];
