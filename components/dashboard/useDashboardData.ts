@@ -1,21 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { collection, query, where, getDocs } from "firebase/firestore";
-import {
-  addDays,
-  differenceInCalendarDays,
-  format,
-  startOfMonth,
-  startOfWeek,
-  subDays,
-} from "date-fns";
+import { differenceInCalendarDays, format, subDays } from "date-fns";
 import { es } from "date-fns/locale";
 import type { DateRange } from "react-day-picker";
-import { db } from "@/lib/firebase";
-import { isExonerated } from "@/lib/utils";
-import { VIP_LEVELS } from "@/lib/constants";
+import { apiFetch } from "@/lib/apiFetch";
 import { capitalizar } from "@/lib/format";
+import { toDateStr, type Vista } from "@/lib/dashboard";
+
+export type { NivelKey, NivelRow, OperadorRow, Punto, Resumen, Vista } from "@/lib/dashboard";
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -27,57 +20,6 @@ export type DateFilter =
   | "last_3_months"
   | "all_time"
   | "custom";
-
-type Retiro = {
-  fecha: string; // YYYY-MM-DD
-  Cumple?: boolean;
-  Tiempo?: number | string;
-  Cantidad?: number | string;
-  Operador?: string;
-  Nivel?: string;
-  comentarioBrecha?: string;
-};
-
-export type Resumen = {
-  total: number;
-  exonerados: number;
-  evaluables: number;
-  cumplidos: number;
-  incumplidos: number;
-  sla: number;
-  tiempo: number;
-  monto: number;
-  autopago: number;
-  automatizacion: number;
-  vipTotal: number;
-};
-
-export type Punto = {
-  clave: string;
-  dia: string; // rótulo del eje X
-  etiqueta: string; // rótulo del tooltip
-  volumen: number;
-  sla: number | null;
-};
-
-export type NivelKey = "Estándar" | "Nivel 2" | "Nivel 3" | "Nivel 4";
-export type NivelRow = { nivel: NivelKey; cantidad: number };
-
-export type OperadorRow = {
-  nombre: string;
-  retiros: number;
-  brechas: number;
-  tiempo: number;
-  sla: number;
-};
-
-export type Vista = {
-  actual: Resumen;
-  anterior: Resumen;
-  diaria: Punto[];
-  niveles: NivelRow[];
-  operadores: OperadorRow[];
-};
 
 export type Periodo = {
   currStart: Date;
@@ -102,13 +44,6 @@ export type EstadoDashboard =
 // ---------------------------------------------------------------------------
 // Período
 // ---------------------------------------------------------------------------
-
-const toDateStr = (d: Date) => format(d, "yyyy-MM-dd");
-
-const parseDateStr = (s: string) => {
-  const [y, m, d] = s.split("-").map(Number);
-  return new Date(y, m - 1, d);
-};
 
 const nombreMes = (d: Date) => format(d, "LLLL", { locale: es });
 
@@ -203,158 +138,6 @@ export function calcularPeriodo(
 }
 
 // ---------------------------------------------------------------------------
-// Cálculos puros
-// ---------------------------------------------------------------------------
-
-const isVip = (d: Retiro) =>
-  (VIP_LEVELS as readonly string[]).includes(String(d.Nivel ?? "").trim());
-
-export function resumir(rows: Retiro[]): Resumen {
-  let total = 0,
-    exo = 0,
-    cum = 0,
-    inc = 0,
-    t = 0,
-    monto = 0,
-    auto = 0,
-    vip = 0;
-  for (const d of rows) {
-    total++;
-    monto += (Number(d.Cantidad) || 0) / 100;
-    if (isVip(d)) vip++;
-    // Regla única de SLA: Autopago y exonerados no cuentan para SLA ni tiempo.
-    if (d.Operador === "Autopago") {
-      auto++;
-      continue;
-    }
-    if (isExonerated(d.comentarioBrecha)) {
-      exo++;
-      continue;
-    }
-    t += Number(d.Tiempo) || 0;
-    if (d.Cumple === true) cum++;
-    else inc++;
-  }
-  const ev = cum + inc; // manuales no exonerados
-  return {
-    total,
-    exonerados: exo,
-    evaluables: ev,
-    cumplidos: cum,
-    incumplidos: inc,
-    sla: ev ? (cum / ev) * 100 : 0,
-    tiempo: ev ? t / ev : 0,
-    monto,
-    autopago: auto,
-    automatizacion: total ? (auto / total) * 100 : 0,
-    vipTotal: vip,
-  };
-}
-
-type Agrupacion = "dia" | "semana" | "mes";
-
-function bucketDe(d: Date, agrupacion: Agrupacion) {
-  if (agrupacion === "semana") {
-    const s = startOfWeek(d, { weekStartsOn: 1 });
-    const txt = format(s, "dd MMM", { locale: es });
-    return { clave: toDateStr(s), dia: `sem ${txt}`, etiqueta: `Semana del ${txt}` };
-  }
-  if (agrupacion === "mes") {
-    const s = startOfMonth(d);
-    return {
-      clave: format(s, "yyyy-MM"),
-      dia: format(s, "MMM yy", { locale: es }),
-      etiqueta: capitalizar(format(s, "LLLL yyyy", { locale: es })),
-    };
-  }
-  return {
-    clave: toDateStr(d),
-    dia: format(d, "dd"),
-    etiqueta: format(d, "dd MMM", { locale: es }),
-  };
-}
-
-/** Agrupa por día (o semana/mes en rangos largos) y rellena los huecos. */
-export function serieDiaria(rows: Retiro[], desde: Date, hasta: Date): Punto[] {
-  if (hasta < desde) return [];
-  const dias = differenceInCalendarDays(hasta, desde) + 1;
-  const agrupacion: Agrupacion =
-    dias > 200 ? "mes" : dias > 62 ? "semana" : "dia";
-
-  const acc = new Map<
-    string,
-    { base: ReturnType<typeof bucketDe>; total: number; cum: number; ev: number }
-  >();
-  for (let d = desde; d <= hasta; d = addDays(d, 1)) {
-    const base = bucketDe(d, agrupacion);
-    if (!acc.has(base.clave)) acc.set(base.clave, { base, total: 0, cum: 0, ev: 0 });
-  }
-
-  for (const r of rows) {
-    const b = acc.get(bucketDe(parseDateStr(r.fecha), agrupacion).clave);
-    if (!b) continue;
-    b.total++;
-    if (r.Operador === "Autopago" || isExonerated(r.comentarioBrecha)) continue;
-    b.ev++;
-    if (r.Cumple === true) b.cum++;
-  }
-
-  return [...acc.values()].map(({ base, total, cum, ev }) => ({
-    ...base,
-    volumen: total,
-    sla: ev ? Math.round((cum / ev) * 1000) / 10 : null,
-  }));
-}
-
-const NIVELES: NivelKey[] = ["Estándar", "Nivel 2", "Nivel 3", "Nivel 4"];
-
-export function porNivel(rows: Retiro[]): NivelRow[] {
-  const cuenta: Record<NivelKey, number> = {
-    Estándar: 0,
-    "Nivel 2": 0,
-    "Nivel 3": 0,
-    "Nivel 4": 0,
-  };
-  for (const r of rows) {
-    const n = String(r.Nivel ?? "").trim();
-    cuenta[isVip(r) ? (n as NivelKey) : "Estándar"]++;
-  }
-  return NIVELES.map((nivel) => ({ nivel, cantidad: cuenta[nivel] }));
-}
-
-export function porOperador(rows: Retiro[]): OperadorRow[] {
-  const map = new Map<
-    string,
-    { total: number; cum: number; inc: number; ev: number; t: number }
-  >();
-  for (const r of rows) {
-    if (r.Operador === "Autopago") continue;
-    const nombre = r.Operador || "Desconocido";
-    const o = map.get(nombre) ?? { total: 0, cum: 0, inc: 0, ev: 0, t: 0 };
-    o.total++;
-    if (!isExonerated(r.comentarioBrecha)) {
-      o.ev++;
-      o.t += Number(r.Tiempo) || 0;
-      if (r.Cumple === true) o.cum++;
-      else o.inc++;
-    }
-    map.set(nombre, o);
-  }
-  return [...map.entries()]
-    .map(([nombre, o]) => ({
-      nombre,
-      retiros: o.total,
-      brechas: o.inc,
-      tiempo: o.ev ? o.t / o.ev : 0,
-      sla: o.ev ? (o.cum / o.ev) * 100 : 0,
-    }))
-    .sort(
-      (a, b) =>
-        a.brechas - b.brechas || b.sla - a.sla || b.retiros - a.retiros,
-    );
-}
-
-// ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
@@ -386,68 +169,18 @@ export function useDashboardData(
 
     const cargar = async () => {
       try {
-        const q =
-          currency === "GLOBAL"
-            ? query(collection(db, "operaciones_retiros"))
-            : query(
-                collection(db, "operaciones_retiros"),
-                where("Moneda", "==", currency),
-              );
-        const snapshot = await getDocs(q);
-
-        const currStartStr = toDateStr(periodo.currStart);
-        const currEndStr = toDateStr(periodo.currEnd);
-        const prevStartStr = toDateStr(periodo.prevStart);
-        const prevEndStr = toDateStr(periodo.prevEnd);
-
-        const curr: Retiro[] = [];
-        const prev: Retiro[] = [];
-        let minFecha: string | null = null;
-
-        snapshot.forEach((doc) => {
-          const data = doc.data();
-          const fecha = String(data["Fecha del reporte"] ?? "").split("T")[0];
-          const row: Retiro = {
-            fecha,
-            Cumple: data.Cumple,
-            Tiempo: data.Tiempo,
-            Cantidad: data.Cantidad,
-            Operador: data.Operador,
-            Nivel: data.Nivel,
-            comentarioBrecha: data.comentarioBrecha,
-          };
-
-          if (periodo.esHistorico) {
-            if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return;
-            curr.push(row);
-            if (!minFecha || fecha < minFecha) minFecha = fecha;
-          } else if (fecha >= currStartStr && fecha <= currEndStr) {
-            curr.push(row);
-          } else if (fecha >= prevStartStr && fecha <= prevEndStr) {
-            prev.push(row);
-          }
-        });
-
-        const desde =
-          periodo.esHistorico && minFecha
-            ? parseDateStr(minFecha)
-            : periodo.currStart;
         const hasta = periodo.currEnd < now ? periodo.currEnd : now;
-
-        const vista = (soloVip: boolean): Vista => {
-          const c = soloVip ? curr.filter(isVip) : curr;
-          const p = soloVip ? prev.filter(isVip) : prev;
-          return {
-            actual: resumir(c),
-            anterior: resumir(p),
-            diaria: serieDiaria(c, desde, hasta),
-            niveles: porNivel(curr), // siempre sobre el total; la card decide qué mostrar
-            operadores: porOperador(c),
-          };
-        };
-
-        if (!cancelado)
-          setResultado({ key, ok: true, todos: vista(false), vip: vista(true) });
+        const qs = new URLSearchParams({
+          moneda: currency,
+          desde: toDateStr(periodo.currStart),
+          hasta: toDateStr(periodo.currEnd),
+          prevDesde: toDateStr(periodo.prevStart),
+          prevHasta: toDateStr(periodo.prevEnd),
+          serieHasta: toDateStr(hasta),
+          historico: periodo.esHistorico ? "1" : "0",
+        });
+        const { todos, vip } = await apiFetch<{ todos: Vista; vip: Vista }>(`/api/dashboard?${qs}`);
+        if (!cancelado) setResultado({ key, ok: true, todos, vip });
       } catch (error) {
         console.error("Error cargando métricas:", error);
         if (!cancelado) setResultado({ key, ok: false });
