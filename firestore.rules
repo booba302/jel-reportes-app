@@ -35,11 +35,25 @@ service cloud.firestore {
     match /historial_reportes/{id} { allow read: if activo(); allow write: if false; }
     match /observaciones_diarias/{id} { allow read: if activo(); allow write: if false; }
     match /evaluaciones_desempeno/{id} { allow read, write: if activo(); }
-    match /evaluaciones_mensuales/{id} { allow read, write: if activo(); }
     match /configuracion/{id} { allow read, write: if activo(); }
 
-    // Los enlaces públicos los valida el servidor; en el cliente solo se crean y se leen con sesión.
-    match /enlaces_expedientes/{id} { allow read, write: if activo(); }
+    // Cierre mensual: lo crea quien cierra; reabrir solo el admin o quien lo cerró.
+    match /evaluaciones_mensuales/{id} {
+      allow read: if activo();
+      allow create: if activo() && request.resource.data.cerradoPorUid == request.auth.uid;
+      allow update: if activo() && (
+        isAdmin()
+        || resource.data.cerradoPorUid == request.auth.uid
+        || resource.data.estado == "reabierto"
+      );
+      allow delete: if false;
+    }
+
+    // Los enlaces públicos los valida el servidor; en el cliente solo se crean, renuevan y leen con sesión.
+    match /enlaces_expedientes/{id} {
+      allow read, create, update: if activo();
+      allow delete: if false;
+    }
 
     // Solo lo escribe la ruta /api/cerrar-mes.
     match /cierres_mensuales_status/{id} {
