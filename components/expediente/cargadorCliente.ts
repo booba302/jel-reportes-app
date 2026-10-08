@@ -2,7 +2,7 @@ import { collection, doc, getDoc, getDocs, query, where } from "firebase/firesto
 import { db } from "@/lib/firebase";
 import type { Evaluacion } from "@/lib/evaluacion";
 import type { Cargador, RetiroOperador } from "@/lib/expediente";
-import { getDocsConRespaldo } from "@/components/evaluacion/consultas";
+import { apiFetch } from "@/lib/apiFetch";
 
 /** Cargador con el SDK de cliente (modo interno, usuario logueado). */
 export const cargadorCliente: Cargador = {
@@ -23,25 +23,9 @@ export const cargadorCliente: Cargador = {
   },
 
   async retirosOperador(operador, desde, hasta) {
-    const ref = collection(db, "operaciones_retiros");
-    const snap = await getDocsConRespaldo(
-      query(
-        ref,
-        where("Operador", "==", operador),
-        where("Fecha del reporte", ">=", desde),
-        where("Fecha del reporte", "<=", hasta),
-      ),
-      // Respaldo sin índice: todo el mes (pesado) y se filtra en memoria.
-      query(ref, where("Fecha del reporte", ">=", desde), where("Fecha del reporte", "<=", hasta)),
-      "operaciones_retiros (Operador + Fecha del reporte)",
-    );
-    const out: RetiroOperador[] = [];
-    snap.forEach((d) => {
-      const r = d.data();
-      if (r.Operador === operador)
-        out.push({ Moneda: r.Moneda, Cumple: r.Cumple, comentarioBrecha: r.comentarioBrecha });
-    });
-    return out;
+    const qs = new URLSearchParams({ operador, desde, hasta });
+    const { retiros } = await apiFetch<{ retiros: RetiroOperador[] }>(`/api/expediente/retiros?${qs}`);
+    return retiros;
   },
 
   async excluidos() {

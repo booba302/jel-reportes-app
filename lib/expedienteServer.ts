@@ -1,6 +1,7 @@
 import { adminDb } from "@/lib/firebaseAdmin";
 import type { Evaluacion } from "@/lib/evaluacion";
-import type { Cargador, RetiroOperador } from "@/lib/expediente";
+import type { Cargador } from "@/lib/expediente";
+import { retirosDeOperador } from "@/lib/retirosRepo";
 
 /** Cargador con el Admin SDK (enlace público: el servidor valida el enlace). */
 export const cargadorServidor: Cargador = {
@@ -18,29 +19,7 @@ export const cargadorServidor: Cargador = {
     return s.exists ? (s.data() as Record<string, unknown>) : null;
   },
 
-  async retirosOperador(operador, desde, hasta) {
-    const ref = adminDb.collection("operaciones_retiros");
-    let docs;
-    try {
-      docs = (
-        await ref
-          .where("Operador", "==", operador)
-          .where("Fecha del reporte", ">=", desde)
-          .where("Fecha del reporte", "<=", hasta)
-          .get()
-      ).docs;
-    } catch (err) {
-      // Sin el índice (Operador + Fecha del reporte): todo el mes y se filtra.
-      console.warn("Falta el índice operaciones_retiros (Operador + Fecha del reporte):", err);
-      docs = (
-        await ref.where("Fecha del reporte", ">=", desde).where("Fecha del reporte", "<=", hasta).get()
-      ).docs.filter((d) => d.data().Operador === operador);
-    }
-    return docs.map((d): RetiroOperador => {
-      const r = d.data();
-      return { Moneda: r.Moneda, Cumple: r.Cumple, comentarioBrecha: r.comentarioBrecha };
-    });
-  },
+  retirosOperador: (operador, desde, hasta) => retirosDeOperador(operador, desde, hasta),
 
   async excluidos() {
     const s = await adminDb.collection("configuracion").doc("evaluacion").get();

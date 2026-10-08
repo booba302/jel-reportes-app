@@ -7,8 +7,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { isExonerated } from "@/lib/utils";
-import { getMonedasByRol } from "@/lib/roles";
+import { apiFetch } from "@/lib/apiFetch";
 import {
   calcularPuntajeFinal,
   calcularPuntajeSLA,
@@ -33,35 +32,33 @@ type Acumulado = {
  *   Si estaba confirmada, recalcula su puntajeFinal.
  * Devuelve la cantidad de operadores procesados.
  */
+/** Retiros del día de un operador en una moneda (lo arma el servidor, ya sin Autopago). */
+type GrupoDia = {
+  operador: string;
+  moneda: string;
+  total: number;
+  exonerados: number;
+  evaluables: number;
+  cumplen: number;
+  tiempo: number;
+};
+
 export async function sincronizarDia({
   dia,
-  rol,
   esExcluido,
 }: {
   dia: string;
-  rol?: string;
   esExcluido: (nombre: string) => boolean;
 }) {
-  const monedasPermitidas = getMonedasByRol(rol);
-
-  const snapOps = await getDocs(
-    query(
-      collection(db, "operaciones_retiros"),
-      where("Fecha del reporte", ">=", `${dia}T00:00:00.000Z`),
-      where("Fecha del reporte", "<=", `${dia}T23:59:59.999Z`),
-    ),
+  // El servidor ya filtra por las monedas del grupo de quien llama.
+  const { grupos } = await apiFetch<{ grupos: GrupoDia[] }>(
+    `/api/evaluacion/retiros-dia?fecha=${dia}`,
   );
 
   const porOperador: Record<string, Acumulado> = {};
-  snapOps.forEach((d) => {
-    const data = d.data();
-    const op: string = data.Operador || "Desconocido";
-    const moneda: string = data.Moneda || "";
-    if (op.toLowerCase().includes("autopago")) return;
-    if (esExcluido(op)) return;
-    if (!monedasPermitidas.includes(moneda)) return;
-
-    const a = (porOperador[op] ??= {
+  for (const g of grupos) {
+    if (esExcluido(g.operador)) continue;
+    const a = (porOperador[g.operador] ??= {
       total: 0,
       evaluables: 0,
       cumplen: 0,
@@ -69,16 +66,13 @@ export async function sincronizarDia({
       exonerados: 0,
       monedas: {},
     });
-    a.total++;
-    a.monedas[moneda] = (a.monedas[moneda] ?? 0) + 1;
-    if (isExonerated(data.comentarioBrecha)) {
-      a.exonerados++;
-      return;
-    }
-    a.evaluables++;
-    a.tiempo += Number(data.Tiempo) || 0;
-    if (data.Cumple === true) a.cumplen++;
-  });
+    a.total += g.total;
+    a.monedas[g.moneda] = (a.monedas[g.moneda] ?? 0) + g.total;
+    a.exonerados += g.exonerados;
+    a.evaluables += g.evaluables;
+    a.cumplen += g.cumplen;
+    a.tiempo += g.tiempo;
+  }
 
   const operadores = Object.keys(porOperador);
   if (operadores.length === 0) return 0;

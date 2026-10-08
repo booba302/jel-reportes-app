@@ -121,7 +121,6 @@ function EvaluacionContent() {
     try {
       const n = await sincronizarDia({
         dia,
-        rol: userData?.rol,
         esExcluido: excluidos.esExcluido,
       });
       if (n === 0) toast.info("No se encontraron operaciones de tu grupo para esta fecha.");
@@ -131,11 +130,11 @@ function EvaluacionContent() {
       setVersionPend((v) => v + 1);
     } catch (err) {
       console.error("Error al sincronizar:", err);
-      toast.error("Error al sincronizar datos con Firebase.");
+      toast.error("Error al sincronizar los datos.");
     } finally {
       setSincronizando(false);
     }
-  }, [dia, userData?.rol, excluidos.esExcluido, recargar]);
+  }, [dia, excluidos.esExcluido, recargar]);
 
   const onConfirmar = async (siguiente: boolean) => {
     if (!ev) return;
