@@ -107,3 +107,14 @@ export function filaObservacion(id: string, d: Record<string, unknown>): FilaObs
     fecha_actualizacion: isoOEpoca(d.fechaActualizacion),
   };
 }
+
+/**
+ * Una carga puede traer dos retiros con el mismo id (mismo jugador y segundo).
+ * Firestore se quedaba con el último; Postgres rechazaría todo el lote, así que se filtra antes.
+ */
+export function sinDuplicados(filas: FilaRetiro[]): FilaRetiro[] {
+  return [...new Map(filas.map((f) => [f.id, f])).values()];
+}
+
+/** Id del registro de `historial_reportes` de un día: "MONEDA_YYYY-MM-DD". */
+export const idHistorialDe = (moneda: string, dia: string) => `${moneda}_${dia}`;

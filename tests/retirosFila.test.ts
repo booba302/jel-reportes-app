@@ -112,3 +112,20 @@ describe("filaObservacion", () => {
     expect(filaObservacion("basura", {})).toBeNull();
   });
 });
+
+describe("sinDuplicados (revisión #1)", () => {
+  test("dos retiros con el mismo id en una carga: queda el último, como hacía Firestore", async () => {
+    const { sinDuplicados } = await import("@/lib/retirosFila");
+    const a = filaRetiro("CLP_1_20260301143500", base)!;
+    const b = { ...a, tiempo: 99 };
+    const c = filaRetiro("CLP_2_20260301143500", base)!;
+    expect(sinDuplicados([a, c, b])).toEqual([b, c]);
+  });
+});
+
+describe("idHistorialDe (revisión #2)", () => {
+  test("el historial de un día se identifica por moneda y día", async () => {
+    const { idHistorialDe } = await import("@/lib/retirosFila");
+    expect(idHistorialDe("CLP", "2026-10-01")).toBe("CLP_2026-10-01");
+  });
+});

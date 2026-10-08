@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { errorResponse, requireUser, type Sesion } from "@/lib/authServer";
 import { sql } from "@/lib/db";
 import { exigirMoneda } from "@/lib/monedasServer";
-import { diaDeReporte } from "@/lib/retirosFila";
+import { diaDeReporte, idHistorialDe } from "@/lib/retirosFila";
 
 export async function DELETE(request: Request) {
   let yo: Sesion;
@@ -21,6 +21,10 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, error: 'Faltan parámetros' }, { status: 400 });
     }
     exigirMoneda(yo, moneda);
+    // El historial se borra por id: debe ser el del mismo día y moneda que se autorizó.
+    if (idHistorial !== idHistorialDe(moneda, dia)) {
+      return NextResponse.json({ success: false, error: "El reporte no corresponde a ese día y moneda." }, { status: 400 });
+    }
 
     // Retiros del día y su registro del historial, todo o nada.
     const borrados = await sql.begin(async (tx) => {

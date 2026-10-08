@@ -1,7 +1,7 @@
 import type postgres from "postgres";
 import { sql } from "@/lib/db";
 import type { RetiroOperador } from "@/lib/expediente";
-import type { FilaHistorial, FilaObservacion, FilaRetiro } from "@/lib/retirosFila";
+import { sinDuplicados, type FilaHistorial, type FilaObservacion, type FilaRetiro } from "@/lib/retirosFila";
 
 /** Conexión normal o transacción en curso. */
 type Db = postgres.Sql | postgres.TransactionSql;
@@ -18,7 +18,8 @@ const COLUMNAS = [
  * recargar un día ya auditado conserva sus exoneraciones (igual que el merge de Firestore).
  * `conComentario` solo lo usa la copia inicial, que inserta en tablas vacías.
  */
-export async function guardarRetiros(filas: FilaRetiro[], db: Db = sql, conComentario = false) {
+export async function guardarRetiros(todas: FilaRetiro[], db: Db = sql, conComentario = false) {
+  const filas = sinDuplicados(todas);
   const cols: (keyof FilaRetiro)[] = conComentario ? [...COLUMNAS, "comentario_brecha"] : [...COLUMNAS];
   for (let i = 0; i < filas.length; i += LOTE) {
     const lote = filas.slice(i, i + LOTE);

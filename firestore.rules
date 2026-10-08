@@ -29,9 +29,11 @@ service cloud.firestore {
     }
 
     // ── Datos operativos: cualquier usuario activo (igual que hoy, pero exige sesión y cuenta activa) ──
-    match /operaciones_retiros/{id} { allow read, write: if activo(); }
-    match /historial_reportes/{id} { allow read, write: if activo(); }
-    match /observaciones_diarias/{id} { allow read, write: if activo(); }
+    // Retiros, historial y notas viven en Postgres desde la fase 1 de Supabase: aquí quedan
+    // solo como respaldo. Sin escritura, una pestaña vieja falla en vez de guardar donde nadie lee.
+    match /operaciones_retiros/{id} { allow read: if activo(); allow write: if false; }
+    match /historial_reportes/{id} { allow read: if activo(); allow write: if false; }
+    match /observaciones_diarias/{id} { allow read: if activo(); allow write: if false; }
     match /evaluaciones_desempeno/{id} { allow read, write: if activo(); }
     match /evaluaciones_mensuales/{id} { allow read, write: if activo(); }
     match /configuracion/{id} { allow read, write: if activo(); }

@@ -6,6 +6,15 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { filaHistorial, filaObservacion, filaRetiro, type FilaRetiro } from "@/lib/retirosFila";
 import { guardarHistorial, guardarObservaciones, guardarRetiros } from "@/lib/retirosRepo";
 
+// Después del corte Postgres es la fuente de verdad: vaciarlo borra lo cargado o exonerado desde entonces.
+if (!process.argv.includes("--confirmo-vaciar")) {
+  console.error(
+    "Este script VACÍA retiros, historial y notas en Postgres y los reemplaza con Firestore.\n" +
+      "Úsalo solo antes del corte. Para continuar: npm run db:copiar -- --confirmo-vaciar",
+  );
+  process.exit(1);
+}
+
 const db = postgres(process.env.DIRECT_URL!, { max: 2, onnotice: () => {} });
 const PAGINA = 5000;
 

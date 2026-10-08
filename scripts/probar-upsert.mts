@@ -17,6 +17,14 @@ try {
     console.error("FALLA:", r);
     process.exitCode = 1;
   } else console.log("OK: la recarga actualizó el tiempo y conservó la exoneración.");
+
+  // Dos retiros con el mismo id en una misma carga: no debe fallar y queda el último.
+  await guardarRetiros([{ ...fila, tiempo: 1 }, { ...fila, tiempo: 2 }], db);
+  const [d] = await db`select tiempo from retiros where id = 'PRUEBA_UPSERT'`;
+  if (d.tiempo !== 2) {
+    console.error("FALLA duplicados:", d);
+    process.exitCode = 1;
+  } else console.log("OK: una carga con ids repetidos se guarda y queda el último.");
 } finally {
   await db`delete from retiros where id = 'PRUEBA_UPSERT'`;
   await db.end();

@@ -3,7 +3,7 @@ import { errorResponse, requireUser, type Sesion } from "@/lib/authServer";
 import * as xlsx from "xlsx";
 import { exigirMoneda } from "@/lib/monedasServer";
 import { guardarReporte } from "@/lib/retirosRepo";
-import { filaRetiro, type FilaHistorial, type FilaRetiro } from "@/lib/retirosFila";
+import { filaRetiro, idHistorialDe, type FilaHistorial, type FilaRetiro } from "@/lib/retirosFila";
 
 interface FilaReporteCruda {
   "Fecha de la operación": string;
@@ -175,7 +175,7 @@ export async function POST(request: Request) {
       }
       const dia = dateStr.slice(0, 10);
       historiales.push({
-        id: `${currency}_${dia}`,
+        id: idHistorialDe(currency, dia),
         fecha_reporte: dia,
         moneda: currency,
         subido_el: new Date().toISOString(),

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { errorResponse, requireUser, type Sesion } from "@/lib/authServer";
 import { exigirMoneda } from "@/lib/monedasServer";
 import { guardarReporte } from "@/lib/retirosRepo";
-import { filaRetiro, type FilaRetiro } from "@/lib/retirosFila";
+import { filaRetiro, idHistorialDe, type FilaRetiro } from "@/lib/retirosFila";
 
 // La operación trabaja en hora de Venezuela (UTC-4, sin horario de verano).
 const HORAS_DIFERENCIA = 4;
@@ -227,7 +227,7 @@ export async function POST(request: Request) {
 
     await guardarReporte(filas, [
       {
-        id: `${currency}_${fecha}`,
+        id: idHistorialDe(currency, fecha),
         fecha_reporte: fecha,
         moneda: currency,
         subido_el: new Date().toISOString(),
