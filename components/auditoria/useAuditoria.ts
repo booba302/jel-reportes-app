@@ -1,54 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  setDoc,
-  updateDoc,
-  where,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { apiFetch } from "@/lib/apiFetch";
 import type { OperacionRow } from "./calculos";
 
 type Resultado =
   | { key: string; ok: true; ops: OperacionRow[]; nota: string }
   | { key: string; ok: false };
 
-async function cargarDia(currency: string, fecha: string) {
-  const snapshot = await getDocs(
-    query(
-      collection(db, "operaciones_retiros"),
-      where("Fecha del reporte", "==", `${fecha}T00:00:00.000Z`),
-      where("Moneda", "==", currency),
-    ),
+function cargarDia(currency: string, fecha: string) {
+  return apiFetch<{ ops: OperacionRow[]; nota: string }>(
+    `/api/auditoria?moneda=${encodeURIComponent(currency)}&fecha=${fecha}`,
   );
-
-  const ops: OperacionRow[] = [];
-  snapshot.forEach((d) => {
-    const data = d.data();
-    const dateStr = String(data["Fecha de la operación"]);
-    ops.push({
-      id: d.id,
-      hora: dateStr.includes(" ") ? dateStr.split(" ")[1] : "00:00:00",
-      alias: data.Alias ?? "",
-      cantidad: Number(data.Cantidad) || 0,
-      tiempo: Number(data.Tiempo) || 0,
-      cumple: data.Cumple === true,
-      operador: data.Operador || "Desconocido",
-      nivel: data.Nivel || "Estándar",
-      comentarioBrecha: data.comentarioBrecha || "",
-    });
-  });
-  ops.sort((a, b) => a.hora.localeCompare(b.hora));
-
-  const obs = await getDoc(doc(db, "observaciones_diarias", `${currency}_${fecha}`));
-  const nota: string = obs.exists() ? obs.data().observacion || "" : "";
-
-  return { ops, nota };
 }
 
 /** Retiros y nota de un día; las ediciones se reflejan en memoria sin reconsultar. */
@@ -75,7 +38,10 @@ export function useAuditoria(currency: string, fecha: string) {
 
   /** Guarda el comentario de brecha y actualiza la fila en memoria. */
   const guardarComentario = useCallback(async (id: string, valor: string) => {
-    await updateDoc(doc(db, "operaciones_retiros", id), { comentarioBrecha: valor });
+    await apiFetch("/api/auditoria/comentario", {
+      method: "PATCH",
+      body: JSON.stringify({ id, comentario: valor }),
+    });
     setResultado((r) =>
       r?.ok
         ? {
@@ -90,11 +56,10 @@ export function useAuditoria(currency: string, fecha: string) {
 
   const guardarNota = useCallback(
     async (observacion: string) => {
-      await setDoc(
-        doc(db, "observaciones_diarias", `${currency}_${fecha}`),
-        { observacion, fechaActualizacion: new Date().toISOString() },
-        { merge: true },
-      );
+      await apiFetch("/api/auditoria/nota", {
+        method: "PUT",
+        body: JSON.stringify({ moneda: currency, fecha, observacion }),
+      });
       setResultado((r) => (r?.ok && r.key === key ? { ...r, nota: observacion } : r));
     },
     [currency, fecha, key],
