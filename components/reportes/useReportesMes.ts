@@ -1,17 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-  type QuerySnapshot,
-} from "firebase/firestore";
-import { addMonths, getDaysInMonth } from "date-fns";
-import { FirebaseError } from "firebase/app";
-import { db } from "@/lib/firebase";
-import { parseMesStr, toMesStr } from "./fechas";
+import { getDaysInMonth } from "date-fns";
+import { apiFetch } from "@/lib/apiFetch";
+import { parseMesStr } from "./fechas";
 
 export type HistorialReporte = {
   id: string;
@@ -36,44 +28,10 @@ type Resultado =
   | { key: string; ok: false };
 
 async function consultarMes(currency: string, mes: string) {
-  const desde = `${mes}-01T00:00:00.000Z`;
-  const hasta = `${toMesStr(addMonths(parseMesStr(mes), 1))}-01T00:00:00.000Z`;
-
-  let snap: QuerySnapshot;
-  try {
-    snap = await getDocs(
-      query(
-        collection(db, "historial_reportes"),
-        where("moneda", "==", currency),
-        where("fechaReporte", ">=", desde),
-        where("fechaReporte", "<", hasta),
-      ),
-    );
-  } catch (err) {
-    // Sin el índice compuesto (moneda + fechaReporte) Firestore responde
-    // "failed-precondition" con el enlace para crearlo. Mientras tanto se usa
-    // la consulta anterior (toda la moneda) y se filtra en memoria.
-    if (!(err instanceof FirebaseError) || err.code !== "failed-precondition")
-      throw err;
-    console.warn(
-      "Falta el índice historial_reportes (moneda + fechaReporte). Créalo desde este enlace:",
-      err.message,
-    );
-    snap = await getDocs(
-      query(
-        collection(db, "historial_reportes"),
-        where("moneda", "==", currency),
-      ),
-    );
-  }
-
-  const data: HistorialReporte[] = [];
-  snap.forEach((d) => {
-    const r = d.data() as HistorialReporte;
-    if (r.fechaReporte >= desde && r.fechaReporte < hasta)
-      data.push({ ...r, id: r.id ?? d.id });
-  });
-  return data;
+  const { historial } = await apiFetch<{ historial: HistorialReporte[] }>(
+    `/api/reportes/mes?moneda=${encodeURIComponent(currency)}&mes=${mes}`,
+  );
+  return historial;
 }
 
 /** Historial del mes, estado de cada día y pendientes por cargar. */

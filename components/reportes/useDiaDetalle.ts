@@ -1,9 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { collection, getDocs, query, where } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { isExonerated } from "@/lib/utils";
+import { apiFetch } from "@/lib/apiFetch";
 import type { HistorialReporte } from "./useReportesMes";
 
 export type DetalleDia = { sla: number; exonerados: number };
@@ -20,35 +18,11 @@ export function useDiaDetalle(historial: HistorialReporte | null) {
     if (!id || !moneda || !fechaReporte || enCache) return;
     let cancelado = false;
 
-    getDocs(
-      query(
-        collection(db, "operaciones_retiros"),
-        where("Moneda", "==", moneda),
-        where("Fecha del reporte", "==", fechaReporte),
-      ),
+    apiFetch<DetalleDia>(
+      `/api/reportes/dia?moneda=${encodeURIComponent(moneda)}&fecha=${fechaReporte.slice(0, 10)}`,
     )
-      .then((snap) => {
-        let exo = 0,
-          cumplidos = 0,
-          evaluables = 0;
-        snap.forEach((d) => {
-          const r = d.data();
-          if (r.Operador === "Autopago") return; // Autopago no cuenta para el SLA
-          if (isExonerated(r.comentarioBrecha)) {
-            exo++;
-            return;
-          }
-          evaluables++;
-          if (r.Cumple === true) cumplidos++;
-        });
-        if (!cancelado)
-          setCache((c) => ({
-            ...c,
-            [id]: {
-              sla: evaluables ? (cumplidos / evaluables) * 100 : 0,
-              exonerados: exo,
-            },
-          }));
+      .then(({ sla, exonerados }) => {
+        if (!cancelado) setCache((c) => ({ ...c, [id]: { sla, exonerados } }));
       })
       .catch((err) => {
         console.error("Error calculando SLA del día:", err);
