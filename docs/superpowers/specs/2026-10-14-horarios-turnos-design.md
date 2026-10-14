@@ -69,7 +69,7 @@ Si se crea, edita o elimina una ausencia que toca un mes ya generado, se regener
 
 - API `/api/horario-publico/[id]?mes=YYYY-MM`. Valida el id y que el enlace esté activo.
 - Meses visibles: desde `2026-10` (y desde enero para años siguientes) hasta el mes en curso, dentro del año del enlace. El servidor rechaza cualquier mes fuera de ese rango; la página solo ofrece esos meses en el selector.
-- El mes en curso se calcula con la zona horaria `America/Santiago` (constante única en `lib/horario.ts`).
+- El mes en curso se calcula con la zona horaria `America/Caracas` (constante única en `lib/horario.ts`).
 - Muestra el calendario, el horario de cada turno y las ausencias del mes. Nada de evaluaciones ni retiros.
 - Enlace inválido o reemplazado: "Enlace no válido".
 

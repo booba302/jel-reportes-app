@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Excel de referencia de horarios (no versionar)
+Horario 2026.xlsx
