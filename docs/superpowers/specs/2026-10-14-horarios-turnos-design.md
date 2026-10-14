@@ -36,6 +36,7 @@ Generar y **guardar** el horario día por día en Postgres (Supabase). Descartad
 - `ausencias`: `id`, `colaborador` (usuario, p. ej. `rafael.benitez`), `tipo` (`vacaciones` | `medica` | `otra`), `inicio` (date), `retorno` (date, primer día de vuelta, exclusivo), `nota`, `creado_el`, `creado_por`. Restricción `retorno > inicio`.
 - `horario_turnos`: PK (`fecha`, `turno` [`manana`|`tarde`], `puesto` [`pen_usd_mxn`|`clp`]), `colaborador`, `editado_manual` (bool).
 - `horario_meses`: `mes` (`YYYY-MM`, PK), `generado_el`, `generado_por`. Marca qué meses existen.
+- `horario_estado`: `fecha` (PK), `estado` (jsonb). Estado de la rotación al **inicio** de cada día generado, más el del día siguiente al último generado. Es lo que permite continuar el mes siguiente y regenerar desde una fecha.
 - `horario_enlaces`: `id` (aleatorio, 6–64 caracteres `[A-Za-z0-9_-]`), `anio`, `activo`, `creado_el`, `creado_por`. Un enlace activo por año.
 
 Los colaboradores de la rotación y sus nombres cortos ("Rafael B.") viven en una constante en `lib/horario.ts`; una ausencia de alguien fuera de esa lista es informativa y no afecta la rotación.
@@ -48,14 +49,15 @@ Entrada: los últimos días ya guardados (estado de la rotación), las ausencias
 
 - Los colaboradores disponibles forman un **orden circular**; cada turno (mañana, tarde, mañana del día siguiente…) toma a los **2 siguientes**: el primero en PEN/USD/MXN y el segundo en CLP.
 - Con 6 (par), eso produce las parejas fijas; los puestos se invierten cada 2 vueltas (cada 3 días). Con 5 (impar), los puestos se alternan solos.
-- El estado (orden, posición y fase de inversión) se reconstruye a partir de los últimos días guardados, de modo que cada mes continúa al anterior.
-- Al **salir** alguien, se quita del orden y se continúa desde la posición actual.
-- Al **volver**, se inserta en la posición del orden en la que nadie quede con dos turnos consecutivos; entre las válidas, la que mejor reparte la carga.
+- El estado (`orden`, `pos`, `invertido`, `contador`) se guarda por día en `horario_estado`; cada mes arranca del estado guardado para su día 1, así continúa al anterior. Las ediciones manuales no cambian el estado.
+- Cuando cambia el grupo, primero se "aplana" la inversión (el orden pasa a reflejar los puestos tal como se están trabajando).
+- Al **salir** alguien, se quita del orden y se continúa desde la posición actual (así lo hiciste con Juan el 14/09; el prototipo lo reproduce exacto).
+- Al **volver**, se inserta como compañero (CLP) del siguiente turno, como hiciste con Juan el 09/10. Insertar solo retrasa a los demás, nunca adelanta a nadie, así que no puede crear turnos seguidos.
 - Si un día quedan menos de 5 disponibles, no se generan esos días y se devuelve un aviso con las fechas.
 
 ## Regenerar por cambios en ausencias
 
-Si se crea, edita o elimina una ausencia que toca un mes ya generado, se regenera desde la primera fecha afectada (nunca antes de hoy) hasta el último día generado. Antes se muestra cuántas casillas editadas a mano hay en ese tramo y se pide confirmación, porque se perderán.
+Si se crea, edita o elimina una ausencia que toca un mes ya generado, se regenera desde la primera fecha afectada (nunca antes de hoy ni antes del primer día con estado guardado; los días importados del Excel no tienen estado y se ajustan a mano) hasta el último día generado. Si con el cambio algún día generado queda con menos de 5 personas, el cambio se rechaza con las fechas; en meses no generados se guarda y el aviso sale al generar. Antes se muestra cuántas casillas editadas a mano hay en ese tramo y se pide confirmación, porque se perderán.
 
 ## Pantallas
 
@@ -75,12 +77,13 @@ Si se crea, edita o elimina una ausencia que toca un mes ya generado, se regener
 
 ## Punto de partida
 
-Script `scripts/importar-horario-excel.mts` (una sola vez): importa octubre 2026 de `Horario 2026.xlsx` a `horario_turnos` y marca `2026-10` en `horario_meses`; importa la hoja "Vacaciones" a `ausencias` (incluye la de Gabriel 13/10–02/11 y las futuras de Rafael y Shirley, y la de Franklin como informativa). Noviembre se genera desde el sistema.
+Script `scripts/importar-horario-excel.mts` (una sola vez): importa octubre 2026 de `Horario 2026.xlsx` a `horario_turnos`, marca `2026-10` en `horario_meses` y guarda el estado del 01/11 (orden Juan, Shirley, Rafael, Angel G., Angel A.; posición en Angel A.), verificado contra el 01/11 del Excel; importa la hoja "Vacaciones" a `ausencias` (incluye la de Gabriel 13/10–02/11 y las futuras de Rafael y Shirley, y la de Franklin como informativa). Noviembre se genera desde el sistema.
 
 ## Pruebas (vitest)
 
-- Generador con 6: reproduce los primeros días de septiembre 2026 del Excel partiendo del estado del 31/08.
-- Generador con 5: reproduce el tramo de agosto (Shirley ausente) y el del 14/09 (sale Juan).
+- Generador con 6: reproduce del 01/09 al 13/09 del Excel.
+- Salida: reproduce del 01/09 al 08/10 con la salida de Juan el 14/09.
+- Generador con 5: reproduce del 03/08 al 23/08 (Shirley ausente) y del 26/10 al 31/10 (Gabriel ausente).
 - Ninguna salida tiene a alguien en dos turnos consecutivos ni en un día ausente.
 - Con 4 disponibles, devuelve aviso y no genera esos días.
 - Visibilidad del enlace: hoy (14/10) solo octubre; el 01/11 octubre y noviembre; un mes futuro se rechaza.
