@@ -11,7 +11,8 @@
     "db:esquema": "tsx --env-file=.env.local scripts/aplicar-sql.mts",
     "db:copiar": "tsx --env-file=.env.local scripts/copiar-firestore.mts",
     "db:verificar": "tsx --env-file=.env.local scripts/verificar-copia.mts",
-    "db:probar-upsert": "tsx --env-file=.env.local scripts/probar-upsert.mts"
+    "db:probar-upsert": "tsx --env-file=.env.local scripts/probar-upsert.mts",
+    "horario:importar": "tsx --env-file=.env.local scripts/importar-horario-excel.mts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
