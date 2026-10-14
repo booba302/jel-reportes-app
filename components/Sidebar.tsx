@@ -11,6 +11,7 @@ import {
   Globe,
   Trophy,
   Users,
+  CalendarClock,
   LogOut,
   X,
   LucideIcon,
@@ -61,6 +62,7 @@ const menuGroups: MenuGroup[] = [
         icon: SquareCheck,
         href: "/evaluacion-diaria",
       },
+      { label: "Horarios", icon: CalendarClock, href: "/horarios", requireAdmin: true },
     ],
   },
   {
