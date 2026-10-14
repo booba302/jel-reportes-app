@@ -6,6 +6,7 @@ import {
   hoyEnZona,
   mesesVisibles,
   rangoRegeneracion,
+  sumarDias,
   ultimoDia,
   validarAusencia,
   generarHorario,
@@ -258,5 +259,39 @@ describe("validarAusencia", () => {
     expect(validarAusencia({ ...ok, tipo: "x" })).toBe("Tipo de ausencia inválido.");
     expect(validarAusencia({ ...ok, inicio: "2026-02-30" })).toBe("Fechas inválidas.");
     expect(validarAusencia({ ...ok, retorno: "2026-11-10" })).toBe("El retorno debe ser posterior al inicio.");
+  });
+});
+
+describe("regenerar tras cambiar una ausencia", () => {
+  const base = [aus("GA", "2026-10-13", "2026-11-02")];
+
+  test("borrar una ausencia y regenerar desde su inicio da lo mismo que generar sin ella", () => {
+    const limpio = generarOk(ESTADO_1_NOV, "2026-11-01", "2026-11-30", base);
+    for (const c of Object.keys(C) as Cod[])
+      for (let d = 3; d <= 28; d++) {
+        const inicio = `2026-11-${String(d).padStart(2, "0")}`;
+        const conAusencia = generarHorario(ESTADO_1_NOV, "2026-11-01", "2026-11-30", [...base, aus(c, inicio, sumarDias(inicio, 2))]);
+        if (!conAusencia.ok) continue;
+        const e = conAusencia.estados.find((x) => x.fecha === inicio)!.estado;
+        const regen = generarOk(e, inicio, "2026-11-30", base);
+        expect(regen.turnos, `${c} ${inicio}`).toEqual(limpio.turnos.filter((t) => t.fecha >= inicio));
+      }
+  });
+});
+
+describe("rangoRegeneracion: solo desde el primer día que cambia", () => {
+  const ctx = { hoy: "2026-10-20", primerEstado: "2026-11-01", ultimoGenerado: "2026-11-30" };
+  const a = (inicio: string, retorno: string) => ({ colaborador: "juan.salcedo", inicio, retorno });
+  test("acortar el retorno regenera desde el nuevo retorno", () => {
+    expect(rangoRegeneracion({ antes: a("2026-11-05", "2026-11-30"), despues: a("2026-11-05", "2026-11-25") }, ctx))
+      .toEqual({ desde: "2026-11-25", hasta: "2026-11-30" });
+  });
+  test("alargar el retorno regenera desde el retorno anterior", () => {
+    expect(rangoRegeneracion({ antes: a("2026-11-05", "2026-11-20"), despues: a("2026-11-05", "2026-11-25") }, ctx))
+      .toEqual({ desde: "2026-11-20", hasta: "2026-11-30" });
+  });
+  test("cambiar de colaborador regenera desde el inicio", () => {
+    expect(rangoRegeneracion({ antes: a("2026-11-05", "2026-11-20"), despues: { ...a("2026-11-05", "2026-11-20"), colaborador: "angel.gomez" } }, ctx))
+      .toEqual({ desde: "2026-11-05", hasta: "2026-11-30" });
   });
 });

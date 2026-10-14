@@ -69,7 +69,13 @@ export function EditarTurnoDialog({
           </SelectContent>
         </Select>
         <DialogFooter>
-          <Button variant="outline" onClick={onCerrar}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setElegido(null);
+              onCerrar();
+            }}
+          >
             Cancelar
           </Button>
           <Button onClick={guardar} disabled={guardando || valor === casilla?.colaborador}>

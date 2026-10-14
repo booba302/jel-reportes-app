@@ -174,8 +174,9 @@ export function generarHorario(
       sinCobertura.push(fecha);
       continue;
     }
-    e = ajustar(e, disponibles);
+    // Se guarda ANTES de ajustar: regenerar desde aquí con otras ausencias decide de nuevo quién sale o vuelve.
     estados.push({ fecha, estado: e });
+    e = ajustar(e, disponibles);
     for (const turno of TURNOS) {
       const n = e.orden.length;
       const a = e.orden[e.pos % n];
@@ -243,7 +244,11 @@ export function rangoRegeneracion(
     (a): a is AusenciaRango => !!a && enRotacion(a.colaborador) && a.retorno > limite,
   );
   if (!afectadas.length) return null;
-  const inicio = afectadas.map((a) => a.inicio).sort()[0];
+  // Misma persona: desde el primer día en que los dos rangos difieren.
+  const inicio =
+    antes && despues && antes.colaborador === despues.colaborador && antes.inicio === despues.inicio
+      ? [antes.retorno, despues.retorno].sort()[0]
+      : afectadas.map((a) => a.inicio).sort()[0];
   const desde = inicio > limite ? inicio : limite;
   return desde <= ctx.ultimoGenerado ? { desde, hasta: ctx.ultimoGenerado } : null;
 }
