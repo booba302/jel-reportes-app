@@ -192,3 +192,106 @@ export function generarHorario(
   estados.push({ fecha: sumarDias(hasta, 1), estado: e });
   return { ok: true, turnos, estados };
 }
+
+// ── Validación y formato ──────────────────────────────────────────────────
+
+export const esMes = (s: unknown): s is string =>
+  typeof s === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(s);
+export const esFecha = (s: unknown): s is string =>
+  typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s) && sumarDias(s, 0) === s;
+/** "2026-09-14" → "14/09" */
+export const fechaCorta = (f: string) => `${f.slice(8, 10)}/${f.slice(5, 7)}`;
+
+/** Hoy en Venezuela, "YYYY-MM-DD". */
+export const hoyEnZona = (ahora = new Date()) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: ZONA_HORARIA,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(ahora);
+
+/** Meses del enlace de `anio`: generados, desde el inicio del sistema (o enero) hasta el mes en curso. */
+export function mesesVisibles(anio: number, hoy: string, generados: string[]) {
+  const desde = anio === Number(MES_INICIO.slice(0, 4)) ? MES_INICIO : `${anio}-01`;
+  return generados
+    .filter((m) => m.startsWith(`${anio}-`) && m >= desde && m >= MES_INICIO && m <= hoy.slice(0, 7))
+    .sort();
+}
+
+// ── Regeneración por cambios en ausencias ─────────────────────────────────
+
+/**
+ * Tramo a regenerar cuando una ausencia se crea (antes = null), edita o elimina (despues = null).
+ * Nunca antes de hoy ni de los días que tienen estado guardado; null si no hay nada que regenerar.
+ */
+export function rangoRegeneracion(
+  cambio: { antes: AusenciaRango | null; despues: AusenciaRango | null },
+  ctx: { hoy: string; primerEstado: string | null; ultimoGenerado: string | null },
+): { desde: string; hasta: string } | null {
+  const { antes, despues } = cambio;
+  if (!ctx.primerEstado || !ctx.ultimoGenerado) return null;
+  if (
+    antes && despues &&
+    antes.colaborador === despues.colaborador &&
+    antes.inicio === despues.inicio &&
+    antes.retorno === despues.retorno
+  )
+    return null;
+  const limite = ctx.hoy > ctx.primerEstado ? ctx.hoy : ctx.primerEstado;
+  const afectadas = [antes, despues].filter(
+    (a): a is AusenciaRango => !!a && enRotacion(a.colaborador) && a.retorno > limite,
+  );
+  if (!afectadas.length) return null;
+  const inicio = afectadas.map((a) => a.inicio).sort()[0];
+  const desde = inicio > limite ? inicio : limite;
+  return desde <= ctx.ultimoGenerado ? { desde, hasta: ctx.ultimoGenerado } : null;
+}
+
+// ── Avisos al editar a mano ───────────────────────────────────────────────
+
+export const claveTurno = (fecha: string, turno: Turno, puesto: Puesto) => `${fecha}|${turno}|${puesto}`;
+
+const indiceTurno = (fecha: string, turno: Turno) => {
+  const [y, m, d] = fecha.split("-").map(Number);
+  return (Date.UTC(y, m - 1, d) / 86_400_000) * 2 + (turno === "tarde" ? 1 : 0);
+};
+
+/** Casillas con problema → motivo. No bloquea: el administrador decide. */
+export function conflictos(
+  turnos: Pick<FilaTurno, "fecha" | "turno" | "puesto" | "colaborador">[],
+  ausencias: AusenciaRango[],
+) {
+  const porIndice = new Map<number, string[]>();
+  for (const t of turnos) {
+    const i = indiceTurno(t.fecha, t.turno);
+    porIndice.set(i, [...(porIndice.get(i) ?? []), t.colaborador]);
+  }
+  const avisos = new Map<string, string>();
+  for (const t of turnos) {
+    const i = indiceTurno(t.fecha, t.turno);
+    const clave = claveTurno(t.fecha, t.turno, t.puesto);
+    if (estaAusente(t.colaborador, t.fecha, ausencias)) avisos.set(clave, "Está ausente ese día");
+    else if (porIndice.get(i)!.filter((c) => c === t.colaborador).length > 1)
+      avisos.set(clave, "Ocupa los dos puestos del turno");
+    else if (porIndice.get(i - 1)?.includes(t.colaborador) || porIndice.get(i + 1)?.includes(t.colaborador))
+      avisos.set(clave, "Tiene turnos seguidos");
+  }
+  return avisos;
+}
+
+// ── Ausencias desde la API ────────────────────────────────────────────────
+
+export type DatosAusencia = Omit<Ausencia, "id">;
+
+/** Devuelve los datos limpios o el mensaje de error. */
+export function validarAusencia(b: unknown): DatosAusencia | string {
+  const o = (b ?? {}) as Record<string, unknown>;
+  const colaborador = String(o.colaborador ?? "");
+  const { tipo, inicio, retorno } = o;
+  if (!COLABORADORES.includes(colaborador)) return "Colaborador inválido.";
+  if (!esTipoAusencia(tipo)) return "Tipo de ausencia inválido.";
+  if (!esFecha(inicio) || !esFecha(retorno)) return "Fechas inválidas.";
+  if (retorno <= inicio) return "El retorno debe ser posterior al inicio.";
+  return { colaborador, tipo, inicio, retorno, nota: String(o.nota ?? "").trim().slice(0, 300) };
+}

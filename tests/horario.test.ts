@@ -1,6 +1,13 @@
 import { describe, expect, test } from "vitest";
 import {
+  claveTurno,
+  conflictos,
   estaAusente,
+  hoyEnZona,
+  mesesVisibles,
+  rangoRegeneracion,
+  ultimoDia,
+  validarAusencia,
   generarHorario,
   type AusenciaRango,
   type EstadoRotacion,
@@ -157,5 +164,99 @@ describe("generarHorario: reglas", () => {
     const cola = generarOk(e15, "2026-11-15", "2026-11-30", AUSENCIAS_NOV);
     expect(cola.turnos).toEqual(mes.turnos.filter((t) => t.fecha >= "2026-11-15"));
     expect(cola.estados.at(-1)).toEqual(mes.estados.at(-1));
+  });
+});
+
+describe("fechas", () => {
+  test("hoyEnZona usa la hora de Caracas", () => {
+    expect(hoyEnZona(new Date("2026-11-01T03:30:00Z"))).toBe("2026-10-31");
+    expect(hoyEnZona(new Date("2026-11-01T04:30:00Z"))).toBe("2026-11-01");
+  });
+  test("ultimoDia", () => {
+    expect(ultimoDia("2026-02")).toBe("2026-02-28");
+    expect(ultimoDia("2026-12")).toBe("2026-12-31");
+  });
+});
+
+describe("mesesVisibles", () => {
+  const gen = ["2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03"];
+  test("hoy 14/10 solo octubre aunque noviembre esté generado", () => {
+    expect(mesesVisibles(2026, "2026-10-14", gen)).toEqual(["2026-10"]);
+  });
+  test("desde el 1/11 octubre y noviembre", () => {
+    expect(mesesVisibles(2026, "2026-11-01", gen)).toEqual(["2026-10", "2026-11"]);
+  });
+  test("un año siguiente arranca en enero y no mezcla años", () => {
+    expect(mesesVisibles(2027, "2027-02-03", gen)).toEqual(["2027-01", "2027-02"]);
+  });
+  test("años antes del inicio y meses no generados no aparecen", () => {
+    expect(mesesVisibles(2025, "2026-10-14", gen)).toEqual([]);
+    expect(mesesVisibles(2026, "2026-11-05", ["2026-10"])).toEqual(["2026-10"]);
+  });
+});
+
+describe("rangoRegeneracion", () => {
+  const ctx = { hoy: "2026-11-05", primerEstado: "2026-11-01", ultimoGenerado: "2026-12-31" };
+  const a = (colaborador: string, inicio: string, retorno: string) => ({ colaborador, inicio, retorno });
+
+  test("ausencia nueva futura regenera desde su inicio", () => {
+    expect(rangoRegeneracion({ antes: null, despues: a("juan.salcedo", "2026-12-10", "2026-12-12") }, ctx))
+      .toEqual({ desde: "2026-12-10", hasta: "2026-12-31" });
+  });
+  test("ausencia en curso regenera desde hoy", () => {
+    expect(rangoRegeneracion({ antes: null, despues: a("juan.salcedo", "2026-11-01", "2026-11-20") }, ctx))
+      .toEqual({ desde: "2026-11-05", hasta: "2026-12-31" });
+  });
+  test("ausencia que ya pasó no regenera", () => {
+    expect(rangoRegeneracion({ antes: a("juan.salcedo", "2026-10-01", "2026-10-03"), despues: a("juan.salcedo", "2026-10-02", "2026-10-04") }, ctx))
+      .toBeNull();
+  });
+  test("cambiar solo la nota no regenera", () => {
+    const x = a("juan.salcedo", "2026-12-10", "2026-12-12");
+    expect(rangoRegeneracion({ antes: x, despues: { ...x } }, ctx)).toBeNull();
+  });
+  test("persona informativa no regenera", () => {
+    expect(rangoRegeneracion({ antes: null, despues: a("franklin.sanchez", "2026-12-01", "2026-12-07") }, ctx)).toBeNull();
+  });
+  test("mover una ausencia toma el inicio más temprano", () => {
+    expect(rangoRegeneracion({ antes: a("juan.salcedo", "2026-12-20", "2026-12-22"), despues: a("juan.salcedo", "2026-12-10", "2026-12-12") }, ctx))
+      .toEqual({ desde: "2026-12-10", hasta: "2026-12-31" });
+  });
+  test("sin meses generados o fuera del rango generado no regenera", () => {
+    expect(rangoRegeneracion({ antes: null, despues: a("juan.salcedo", "2027-01-10", "2027-01-12") }, ctx)).toBeNull();
+    expect(rangoRegeneracion({ antes: null, despues: a("juan.salcedo", "2026-12-10", "2026-12-12") }, { ...ctx, primerEstado: null, ultimoGenerado: null })).toBeNull();
+  });
+});
+
+describe("conflictos", () => {
+  const t = (fecha: string, turno: "manana" | "tarde", puesto: "pen_usd_mxn" | "clp", colaborador: string) => ({ fecha, turno, puesto, colaborador });
+  test("marca turnos seguidos (tarde y mañana siguiente)", () => {
+    const m = conflictos([t("2026-11-01", "tarde", "clp", "juan.salcedo"), t("2026-11-02", "manana", "pen_usd_mxn", "juan.salcedo")], []);
+    expect(m.get(claveTurno("2026-11-01", "tarde", "clp"))).toBe("Tiene turnos seguidos");
+    expect(m.get(claveTurno("2026-11-02", "manana", "pen_usd_mxn"))).toBe("Tiene turnos seguidos");
+  });
+  test("marca ausente y doble puesto", () => {
+    const m = conflictos(
+      [t("2026-11-03", "manana", "pen_usd_mxn", "angel.gomez"), t("2026-11-03", "manana", "clp", "angel.gomez")],
+      [{ colaborador: "angel.gomez", inicio: "2026-11-03", retorno: "2026-11-04" }],
+    );
+    expect(m.get(claveTurno("2026-11-03", "manana", "clp"))).toBe("Está ausente ese día");
+  });
+  test("mañana y tarde de días distintos no choca", () => {
+    const m = conflictos([t("2026-11-01", "manana", "clp", "juan.salcedo"), t("2026-11-02", "manana", "pen_usd_mxn", "juan.salcedo")], []);
+    expect(m.size).toBe(0);
+  });
+});
+
+describe("validarAusencia", () => {
+  const ok = { colaborador: "juan.salcedo", tipo: "medica", inicio: "2026-11-10", retorno: "2026-11-11", nota: "  reposo  " };
+  test("acepta y limpia la nota", () => {
+    expect(validarAusencia(ok)).toEqual({ ...ok, nota: "reposo" });
+  });
+  test("rechaza datos inválidos", () => {
+    expect(validarAusencia({ ...ok, colaborador: "otro" })).toBe("Colaborador inválido.");
+    expect(validarAusencia({ ...ok, tipo: "x" })).toBe("Tipo de ausencia inválido.");
+    expect(validarAusencia({ ...ok, inicio: "2026-02-30" })).toBe("Fechas inválidas.");
+    expect(validarAusencia({ ...ok, retorno: "2026-11-10" })).toBe("El retorno debe ser posterior al inicio.");
   });
 });
