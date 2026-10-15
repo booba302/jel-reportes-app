@@ -61,9 +61,9 @@ export interface Ausencia extends AusenciaRango {
 }
 
 /**
- * Día con turnos reducidos (Navidad, 31/12…). Con 1 persona, el turno lo cubre el siguiente
- * después de la pareja que tocaba (todas las monedas) y la rotación sigue desde él; con 0 el turno
- * se cierra y la pareja que tocaba lo pierde.
+ * Día con turnos reducidos (Navidad, 31/12…). Nadie se salta: con 1 persona trabaja solo el
+ * siguiente del orden (todas las monedas) y el próximo turno sigue desde quien venía después;
+ * con 0 el turno se cierra sin consumir a nadie.
  */
 export type Personas = 0 | 1 | 2;
 export interface DiaEspecial {
@@ -174,7 +174,8 @@ function ajustar(e: EstadoRotacion, disponibles: string[]): EstadoRotacion {
   return { orden, pos, invertido: false, contador: 0 };
 }
 
-function avanzar(e: EstadoRotacion): EstadoRotacion {
+/** Pasa al turno siguiente consumiendo `personas` del orden (2 en un turno normal). */
+function avanzar(e: EstadoRotacion, personas = 2): EstadoRotacion {
   const n = e.orden.length;
   let { invertido, contador } = e;
   contador++;
@@ -182,7 +183,7 @@ function avanzar(e: EstadoRotacion): EstadoRotacion {
     invertido = !invertido;
     contador = 0;
   }
-  return { orden: e.orden, pos: (e.pos + 2) % n, invertido, contador };
+  return { orden: e.orden, pos: (e.pos + personas) % n, invertido, contador };
 }
 
 /** Genera [desde, hasta] partiendo del estado al inicio de `desde`. */
@@ -218,12 +219,13 @@ export function generarHorario(
           { fecha, turno, puesto: "pen_usd_mxn", colaborador: pen, editadoManual: false },
           { fecha, turno, puesto: "clp", colaborador: clp, editadoManual: false },
         );
+        e = avanzar(e);
       } else if (personas === 1) {
-        // Lo cubre el siguiente después de la pareja que tocaba; la rotación sigue desde él.
-        turnos.push({ fecha, turno, puesto: "pen_usd_mxn", colaborador: e.orden[(e.pos + 2) % n], editadoManual: false });
-        e = { ...e, pos: (e.pos + 1) % n };
+        // Solo trabaja el siguiente del orden; el próximo turno sigue desde quien venía después.
+        turnos.push({ fecha, turno, puesto: "pen_usd_mxn", colaborador: a, editadoManual: false });
+        e = avanzar(e, 1);
       }
-      e = avanzar(e);
+      // Turno cerrado: no consume a nadie del orden.
     }
   }
   if (sinCobertura.length) return { ok: false, fechas: sinCobertura };

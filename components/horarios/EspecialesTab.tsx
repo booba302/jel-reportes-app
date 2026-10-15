@@ -113,7 +113,7 @@ export function EspecialesTab({ onCambio }: { onCambio: () => void }) {
         <div>
           <h2 className="font-semibold">Días especiales</h2>
           <p className="text-xs text-muted-foreground">
-            Turnos con menos personas u otro horario (Navidad, 31 de diciembre…). Con 1 persona lo cubre el siguiente del orden.
+            Turnos con menos personas u otro horario (Navidad, 31 de diciembre…). Nadie se salta: la rotación sigue en orden.
           </p>
         </div>
         <Button size="sm" onClick={() => setForm({ editando: false, datos: VACIO })}>
