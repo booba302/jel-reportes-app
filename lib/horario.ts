@@ -61,8 +61,9 @@ export interface Ausencia extends AusenciaRango {
 }
 
 /**
- * Día con turnos reducidos (Navidad, 31/12…). La rotación avanza igual que un día normal:
- * con 1 persona se queda quien iba en PEN/USD/MXN y cubre todas las monedas; con 0 el turno se cierra.
+ * Día con turnos reducidos (Navidad, 31/12…). Con 1 persona, el turno lo cubre el siguiente
+ * después de la pareja que tocaba (todas las monedas) y la rotación sigue desde él; con 0 el turno
+ * se cierra y la pareja que tocaba lo pierde.
  */
 export type Personas = 0 | 1 | 2;
 export interface DiaEspecial {
@@ -212,8 +213,16 @@ export function generarHorario(
       const b = e.orden[(e.pos + 1) % n];
       const [pen, clp] = e.invertido ? [b, a] : [a, b];
       const personas = personasTurno(especialDe.get(fecha), turno);
-      if (personas >= 1) turnos.push({ fecha, turno, puesto: "pen_usd_mxn", colaborador: pen, editadoManual: false });
-      if (personas === 2) turnos.push({ fecha, turno, puesto: "clp", colaborador: clp, editadoManual: false });
+      if (personas === 2) {
+        turnos.push(
+          { fecha, turno, puesto: "pen_usd_mxn", colaborador: pen, editadoManual: false },
+          { fecha, turno, puesto: "clp", colaborador: clp, editadoManual: false },
+        );
+      } else if (personas === 1) {
+        // Lo cubre el siguiente después de la pareja que tocaba; la rotación sigue desde él.
+        turnos.push({ fecha, turno, puesto: "pen_usd_mxn", colaborador: e.orden[(e.pos + 2) % n], editadoManual: false });
+        e = { ...e, pos: (e.pos + 1) % n };
+      }
       e = avanzar(e);
     }
   }

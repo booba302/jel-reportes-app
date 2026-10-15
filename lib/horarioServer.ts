@@ -74,37 +74,47 @@ export async function aplicarCambio(
 }
 
 /**
- * Escribe el cambio de un día especial y, si su mes ya está generado, rehace solo ese día
- * desde su estado guardado. Pide confirmación si hay casillas de ese día editadas a mano.
+ * Tramo a rehacer al cambiar el día especial de `fecha`: desde ese día hasta el último generado,
+ * porque un turno de 1 persona corre la rotación. null si ese día aún no está generado.
  */
+async function rangoDiaEspecial(fecha: string, db: Tx | postgres.Sql) {
+  const { ultimoGenerado } = await repo.limitesHorario(db);
+  if (!ultimoGenerado || fecha > ultimoGenerado) return null;
+  return { desde: fecha, hasta: ultimoGenerado };
+}
+
+/** Escribe el cambio de un día especial y rehace lo ya generado desde ese día, todo o nada. */
 export async function aplicarDiaEspecial(
   fecha: string,
   confirmar: boolean,
   escribir: (tx: Tx) => Promise<void>,
 ) {
   await sql.begin(async (tx) => {
-    const generado = (await repo.mesesGenerados(tx)).includes(fecha.slice(0, 7));
-    const estado = generado ? await repo.estadoEn(fecha, tx) : null;
-    if (generado && !estado)
+    const rango = await rangoDiaEspecial(fecha, tx);
+    const estado = rango ? await repo.estadoEn(fecha, tx) : null;
+    if (rango && fecha < hoyEnZona())
+      throw new HttpError(409, "Ese día ya pasó y está generado: ajusta las casillas a mano.");
+    if (rango && !estado)
       throw new HttpError(409, "Ese día viene del Excel y no se puede rehacer: ajusta las casillas a mano.");
-    const editadas = generado ? await repo.contarEditadas(fecha, fecha, tx) : 0;
+    const editadas = rango ? await repo.contarEditadas(rango.desde, rango.hasta, tx) : 0;
     if (editadas > 0 && !confirmar)
       throw new HttpError(409, `Se perderían ${editadas} casillas editadas a mano. Confirma para continuar.`);
     await escribir(tx);
-    if (!estado) return;
+    if (!rango || !estado) return;
     const r = generarHorario(
       estado,
-      fecha,
-      fecha,
-      await repo.ausenciasQueTocan(fecha, fecha, tx),
-      await repo.especialesEntre(fecha, fecha, tx),
+      rango.desde,
+      rango.hasta,
+      await repo.ausenciasQueTocan(rango.desde, rango.hasta, tx),
+      await repo.especialesEntre(rango.desde, rango.hasta, tx),
     );
     if (!r.ok) throw new HttpError(422, `No se guardó: ${sinCobertura(r.fechas)}`);
-    await repo.reemplazarTurnosDia(fecha, r.turnos, tx);
+    await repo.guardarGeneracion(r, rango.desde, rango.hasta, tx);
   });
 }
 
 /** Casillas editadas a mano que se perderían al cambiar el día especial de `fecha`. */
 export async function impactoDiaEspecial(fecha: string) {
-  return (await repo.mesesGenerados()).includes(fecha.slice(0, 7)) ? repo.contarEditadas(fecha, fecha) : 0;
+  const rango = await rangoDiaEspecial(fecha, sql);
+  return rango ? repo.contarEditadas(rango.desde, rango.hasta) : 0;
 }

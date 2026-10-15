@@ -46,7 +46,7 @@ const campo = (t: Turno) =>
 
 type Pendiente = { editadas: number; ejecutar: () => Promise<void> };
 
-/** Días con turnos reducidos. Si el mes ya está generado, se rehace solo ese día. */
+/** Días con turnos reducidos. Si el día ya está generado, el horario se rehace desde ese día. */
 export function EspecialesTab({ onCambio }: { onCambio: () => void }) {
   const [lista, setLista] = useState<DiaEspecial[] | null>(null);
   const [form, setForm] = useState<{ editando: boolean; datos: DiaEspecial } | null>(null);
@@ -113,7 +113,7 @@ export function EspecialesTab({ onCambio }: { onCambio: () => void }) {
         <div>
           <h2 className="font-semibold">Días especiales</h2>
           <p className="text-xs text-muted-foreground">
-            Turnos con menos personas u otro horario (Navidad, 31 de diciembre…). La rotación sigue igual.
+            Turnos con menos personas u otro horario (Navidad, 31 de diciembre…). Con 1 persona lo cubre el siguiente del orden.
           </p>
         </div>
         <Button size="sm" onClick={() => setForm({ editando: false, datos: VACIO })}>
@@ -233,7 +233,7 @@ export function EspecialesTab({ onCambio }: { onCambio: () => void }) {
         open={!!borrando}
         onOpenChange={(o) => !o && setBorrando(null)}
         titulo="Eliminar día especial"
-        descripcion={borrando ? `El ${fechaCorta(borrando.fecha)} vuelve a ser un día normal y se ajusta el horario si ya está generado.` : ""}
+        descripcion={borrando ? `El ${fechaCorta(borrando.fecha)} vuelve a ser un día normal y, si ya está generado, el horario se rehace desde ese día.` : ""}
         accion="Eliminar"
         tono="danger"
         onConfirmar={async () => {
@@ -246,7 +246,7 @@ export function EspecialesTab({ onCambio }: { onCambio: () => void }) {
         open={!!pendiente}
         onOpenChange={(o) => !o && setPendiente(null)}
         titulo="Se perderán ediciones manuales"
-        descripcion={`Ese día se vuelve a armar y se pierden ${pendiente?.editadas ?? 0} casillas que editaste a mano. ¿Continuar?`}
+        descripcion={`El horario se rehace desde ese día y se pierden ${pendiente?.editadas ?? 0} casillas que editaste a mano. ¿Continuar?`}
         accion="Continuar"
         tono="warning"
         onConfirmar={async () => {

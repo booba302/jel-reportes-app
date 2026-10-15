@@ -310,19 +310,46 @@ describe("días especiales", () => {
     nota: "Navidad",
   };
 
-  test("turno de 1 persona deja solo PEN/USD/MXN y uno de 0 queda cerrado", () => {
-    const r = generarHorario(seis, "2026-12-25", "2026-12-25", [], [navidad]);
+  /** Días → "fecha mañana | tarde" con códigos, en orden PEN, CLP. */
+  const resumen = (ts: FilaTurno[]) => {
+    const dias = new Map<string, Record<string, string[]>>();
+    for (const t of ts) {
+      const d = dias.get(t.fecha) ?? { manana: [], tarde: [] };
+      d[t.turno].push(DE[t.colaborador]);
+      dias.set(t.fecha, d);
+    }
+    return [...dias].map(([f, d]) => `${f} ${d.manana.join(",") || "-"} | ${d.tarde.join(",") || "-"}`);
+  };
+
+  test("turno de 1 persona: lo cubre el siguiente después de la pareja y la rotación sigue desde ahí", () => {
+    // A B C D E F = GA RB AA AG JS SP. Normal: mañana A·B, tarde C·D.
+    const dia: DiaEspecial = { ...navidad, personasTarde: 2 };
+    const r = generarHorario(seis, "2026-12-25", "2026-12-26", [], [dia]);
     if (!r.ok) throw new Error("no generó");
-    expect(r.turnos.map((t) => `${t.turno}:${t.puesto}:${DE[t.colaborador]}`)).toEqual(["manana:pen_usd_mxn:GA"]);
+    expect(resumen(r.turnos)).toEqual(["2026-12-25 AA | AG,JS", "2026-12-26 SP,GA | RB,AA"]);
+    expect(r.turnos.filter((t) => t.fecha === "2026-12-25" && t.turno === "manana").map((t) => t.puesto)).toEqual([
+      "pen_usd_mxn",
+    ]);
   });
 
-  test("la rotación sigue igual que sin el día especial", () => {
-    const normal = generarHorario(seis, "2026-12-24", "2026-12-27", []);
-    const especial = generarHorario(seis, "2026-12-24", "2026-12-27", [], [navidad]);
-    if (!normal.ok || !especial.ok) throw new Error("no generó");
-    expect(especial.estados).toEqual(normal.estados);
-    const sinNavidad = (ts: FilaTurno[]) => ts.filter((t) => t.fecha !== "2026-12-25");
-    expect(sinNavidad(especial.turnos)).toEqual(sinNavidad(normal.turnos));
+  test("turno de 0 personas queda cerrado y la pareja pierde ese turno", () => {
+    const r = generarHorario(seis, "2026-12-25", "2026-12-26", [], [navidad]);
+    if (!r.ok) throw new Error("no generó");
+    expect(resumen(r.turnos)).toEqual(["2026-12-25 AA | -", "2026-12-26 SP,GA | RB,AA"]);
+  });
+
+  test("con días especiales nadie queda en turnos seguidos", () => {
+    const especiales: DiaEspecial[] = [
+      { ...navidad, fecha: "2026-12-24", personasManana: 2, personasTarde: 1 },
+      { ...navidad, fecha: "2026-12-25", personasManana: 1, personasTarde: 1 },
+      { ...navidad, fecha: "2026-12-31", personasManana: 2, personasTarde: 1 },
+      { ...navidad, fecha: "2027-01-01", personasManana: 0, personasTarde: 1 },
+    ];
+    for (const ausencias of [[], [aus("RB", "2026-12-20", "2027-01-03")]]) {
+      const r = generarHorario(seis, "2026-12-01", "2027-01-31", ausencias, especiales);
+      if (!r.ok) throw new Error("no generó");
+      expect(conflictos(r.turnos, ausencias).size).toBe(0);
+    }
   });
 
   test("personasTurno: 2 si no hay día especial", () => {

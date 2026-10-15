@@ -181,19 +181,6 @@ export async function eliminarEspecial(fecha: string, db: Db = sql) {
   return (await db`delete from dias_especiales where fecha = ${fecha}::date`).count;
 }
 
-/** Reemplaza solo los turnos de un día; los estados no cambian (un día especial no altera la rotación). */
-export async function reemplazarTurnosDia(fecha: string, turnos: FilaTurno[], db: Db = sql) {
-  await db`delete from horario_turnos where fecha = ${fecha}::date`;
-  const filas = turnos.map((t) => ({
-    fecha: t.fecha,
-    turno: t.turno,
-    puesto: t.puesto,
-    colaborador: t.colaborador,
-    editado_manual: t.editadoManual,
-  }));
-  if (filas.length) await db`insert into horario_turnos ${db(filas)}`;
-}
-
 export async function enlaceActivo(anio: number, db: Db = sql): Promise<string | null> {
   const [r] = await db`select id from horario_enlaces where anio = ${anio} and activo`;
   return r ? (r.id as string) : null;
