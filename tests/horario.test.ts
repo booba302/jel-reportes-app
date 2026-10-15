@@ -10,7 +10,10 @@ import {
   ultimoDia,
   validarAusencia,
   generarHorario,
+  personasTurno,
+  validarDiaEspecial,
   type AusenciaRango,
+  type DiaEspecial,
   type EstadoRotacion,
   type FilaTurno,
 } from "@/lib/horario";
@@ -293,5 +296,44 @@ describe("rangoRegeneracion: solo desde el primer día que cambia", () => {
   test("cambiar de colaborador regenera desde el inicio", () => {
     expect(rangoRegeneracion({ antes: a("2026-11-05", "2026-11-20"), despues: { ...a("2026-11-05", "2026-11-20"), colaborador: "angel.gomez" } }, ctx))
       .toEqual({ desde: "2026-11-05", hasta: "2026-11-30" });
+  });
+});
+
+describe("días especiales", () => {
+  const seis = estado(["GA", "RB", "AA", "AG", "JS", "SP"]);
+  const navidad: DiaEspecial = {
+    fecha: "2026-12-25",
+    personasManana: 1,
+    personasTarde: 0,
+    horarioManana: "08:00 a.m. – 12:00 p.m.",
+    horarioTarde: "",
+    nota: "Navidad",
+  };
+
+  test("turno de 1 persona deja solo PEN/USD/MXN y uno de 0 queda cerrado", () => {
+    const r = generarHorario(seis, "2026-12-25", "2026-12-25", [], [navidad]);
+    if (!r.ok) throw new Error("no generó");
+    expect(r.turnos.map((t) => `${t.turno}:${t.puesto}:${DE[t.colaborador]}`)).toEqual(["manana:pen_usd_mxn:GA"]);
+  });
+
+  test("la rotación sigue igual que sin el día especial", () => {
+    const normal = generarHorario(seis, "2026-12-24", "2026-12-27", []);
+    const especial = generarHorario(seis, "2026-12-24", "2026-12-27", [], [navidad]);
+    if (!normal.ok || !especial.ok) throw new Error("no generó");
+    expect(especial.estados).toEqual(normal.estados);
+    const sinNavidad = (ts: FilaTurno[]) => ts.filter((t) => t.fecha !== "2026-12-25");
+    expect(sinNavidad(especial.turnos)).toEqual(sinNavidad(normal.turnos));
+  });
+
+  test("personasTurno: 2 si no hay día especial", () => {
+    expect(personasTurno(undefined, "tarde")).toBe(2);
+    expect(personasTurno(navidad, "manana")).toBe(1);
+    expect(personasTurno(navidad, "tarde")).toBe(0);
+  });
+
+  test("validarDiaEspecial", () => {
+    expect(validarDiaEspecial({ ...navidad, personasTarde: 3 })).toBe("Cantidad de personas inválida.");
+    expect(validarDiaEspecial({ ...navidad, fecha: "2026-02-30" })).toBe("Fecha inválida.");
+    expect(validarDiaEspecial({ ...navidad, nota: "  Navidad  " })).toEqual(navidad);
   });
 });

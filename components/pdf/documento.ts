@@ -186,7 +186,7 @@ export async function generarPdf(doc: DocumentoPdf) {
         head: [b.cabecera],
         body: filas.map((f) => f.map(textoCelda)),
         styles: b.compacta
-          ? { fontSize: 6.5, cellPadding: 0.9, textColor: 23, halign: "center", lineColor: 255, lineWidth: 0.3 }
+          ? { fontSize: 6.5, cellPadding: 0.9, textColor: 23, halign: "center", valign: "top", lineColor: 255, lineWidth: 0.3 }
           : { fontSize: 7.5, cellPadding: 1.6, textColor: 23 },
         headStyles: { fillColor: [242, 242, 242], textColor: 23, fontStyle: "bold" },
         ...(b.compacta ? { theme: "plain" as const } : {}),

@@ -3,11 +3,11 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/apiFetch";
-import { ETIQUETA_PUESTO, ETIQUETA_TURNO, ROTACION, fechaCorta, nombreCorto } from "@/lib/horario";
+import { ETIQUETA_PUESTO, ETIQUETA_TURNO, ROTACION, TODAS_LAS_MONEDAS, fechaCorta, nombreCorto } from "@/lib/horario";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { Casilla } from "./CalendarioMes";
+import type { CasillaEditable } from "./CalendarioMes";
 
 /** Cambia a mano quién cubre una casilla. */
 export function EditarTurnoDialog({
@@ -15,7 +15,7 @@ export function EditarTurnoDialog({
   onCerrar,
   onGuardado,
 }: {
-  casilla: Casilla | null;
+  casilla: CasillaEditable | null;
   onCerrar: () => void;
   onGuardado: () => void;
 }) {
@@ -53,7 +53,7 @@ export function EditarTurnoDialog({
           <DialogTitle>Cambiar turno</DialogTitle>
           <DialogDescription>
             {casilla &&
-              `${fechaCorta(casilla.fecha)} · ${ETIQUETA_TURNO[casilla.turno]} · ${ETIQUETA_PUESTO[casilla.puesto]}`}
+              `${fechaCorta(casilla.fecha)} · ${ETIQUETA_TURNO[casilla.turno]} · ${casilla.todasLasMonedas ? TODAS_LAS_MONEDAS : ETIQUETA_PUESTO[casilla.puesto]}`}
           </DialogDescription>
         </DialogHeader>
         <Select value={valor} onValueChange={setElegido}>

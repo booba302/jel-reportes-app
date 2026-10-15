@@ -10,9 +10,10 @@ export async function GET(request: Request) {
     await requireAdmin(request);
     const mes = new URL(request.url).searchParams.get("mes");
     if (!esMes(mes)) throw new HttpError(400, "Mes inválido.");
-    const [turnos, ausencias, generados, estadoInicial] = await Promise.all([
+    const [turnos, ausencias, especiales, generados, estadoInicial] = await Promise.all([
       repo.turnosEntre(primerDia(mes), ultimoDia(mes)),
       repo.ausenciasQueTocan(primerDia(mes), ultimoDia(mes)),
+      repo.especialesEntre(primerDia(mes), ultimoDia(mes)),
       repo.mesesGenerados(),
       repo.estadoEn(primerDia(mes)),
     ]);
@@ -20,6 +21,7 @@ export async function GET(request: Request) {
       success: true,
       turnos,
       ausencias,
+      especiales,
       generados,
       puedeGenerar: !generados.includes(mes) && !!estadoInicial,
     });

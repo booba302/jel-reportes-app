@@ -25,7 +25,13 @@ export async function generarMes(mes: string, por: string) {
     const hasta = ultimoDia(mes);
     const estado = await repo.estadoEn(desde, tx);
     if (!estado) throw new HttpError(409, "Primero genera el mes anterior.");
-    const r = generarHorario(estado, desde, hasta, await repo.ausenciasQueTocan(desde, hasta, tx));
+    const r = generarHorario(
+      estado,
+      desde,
+      hasta,
+      await repo.ausenciasQueTocan(desde, hasta, tx),
+      await repo.especialesEntre(desde, hasta, tx),
+    );
     if (!r.ok) throw new HttpError(422, `No se generó: ${sinCobertura(r.fechas)}`);
     await repo.guardarGeneracion(r, desde, hasta, tx);
     await repo.marcarMes(mes, por, tx);
@@ -55,8 +61,50 @@ export async function aplicarCambio(
     if (!rango) return;
     const estado = await repo.estadoEn(rango.desde, tx);
     if (!estado) throw new HttpError(500, "Falta el estado de la rotación para regenerar.");
-    const r = generarHorario(estado, rango.desde, rango.hasta, await repo.ausenciasQueTocan(rango.desde, rango.hasta, tx));
+    const r = generarHorario(
+      estado,
+      rango.desde,
+      rango.hasta,
+      await repo.ausenciasQueTocan(rango.desde, rango.hasta, tx),
+      await repo.especialesEntre(rango.desde, rango.hasta, tx),
+    );
     if (!r.ok) throw new HttpError(422, `No se guardó: con este cambio ${sinCobertura(r.fechas)}`);
     await repo.guardarGeneracion(r, rango.desde, rango.hasta, tx);
   });
+}
+
+/**
+ * Escribe el cambio de un día especial y, si su mes ya está generado, rehace solo ese día
+ * desde su estado guardado. Pide confirmación si hay casillas de ese día editadas a mano.
+ */
+export async function aplicarDiaEspecial(
+  fecha: string,
+  confirmar: boolean,
+  escribir: (tx: Tx) => Promise<void>,
+) {
+  await sql.begin(async (tx) => {
+    const generado = (await repo.mesesGenerados(tx)).includes(fecha.slice(0, 7));
+    const estado = generado ? await repo.estadoEn(fecha, tx) : null;
+    if (generado && !estado)
+      throw new HttpError(409, "Ese día viene del Excel y no se puede rehacer: ajusta las casillas a mano.");
+    const editadas = generado ? await repo.contarEditadas(fecha, fecha, tx) : 0;
+    if (editadas > 0 && !confirmar)
+      throw new HttpError(409, `Se perderían ${editadas} casillas editadas a mano. Confirma para continuar.`);
+    await escribir(tx);
+    if (!estado) return;
+    const r = generarHorario(
+      estado,
+      fecha,
+      fecha,
+      await repo.ausenciasQueTocan(fecha, fecha, tx),
+      await repo.especialesEntre(fecha, fecha, tx),
+    );
+    if (!r.ok) throw new HttpError(422, `No se guardó: ${sinCobertura(r.fechas)}`);
+    await repo.reemplazarTurnosDia(fecha, r.turnos, tx);
+  });
+}
+
+/** Casillas editadas a mano que se perderían al cambiar el día especial de `fecha`. */
+export async function impactoDiaEspecial(fecha: string) {
+  return (await repo.mesesGenerados()).includes(fecha.slice(0, 7)) ? repo.contarEditadas(fecha, fecha) : 0;
 }

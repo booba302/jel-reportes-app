@@ -4,6 +4,7 @@ import { sql } from "@/lib/db";
 import type {
   Ausencia,
   DatosAusencia,
+  DiaEspecial,
   EstadoDia,
   EstadoRotacion,
   FilaTurno,
@@ -140,6 +141,57 @@ export async function actualizarAusencia(id: string, a: DatosAusencia, db: Db = 
 
 export async function eliminarAusencia(id: string, db: Db = sql) {
   await db`delete from ausencias where id = ${id}::uuid`;
+}
+
+const aEspecial = (r: postgres.Row): DiaEspecial => ({
+  fecha: r.fecha,
+  personasManana: r.personas_manana,
+  personasTarde: r.personas_tarde,
+  horarioManana: r.horario_manana,
+  horarioTarde: r.horario_tarde,
+  nota: r.nota,
+});
+
+export async function especialesEntre(desde: string, hasta: string, db: Db = sql): Promise<DiaEspecial[]> {
+  return (
+    await db`select to_char(fecha, 'YYYY-MM-DD') as fecha, personas_manana, personas_tarde,
+                    horario_manana, horario_tarde, nota
+             from dias_especiales where fecha between ${desde}::date and ${hasta}::date order by fecha`
+  ).map(aEspecial);
+}
+
+export async function todosEspeciales(db: Db = sql): Promise<DiaEspecial[]> {
+  return (
+    await db`select to_char(fecha, 'YYYY-MM-DD') as fecha, personas_manana, personas_tarde,
+                    horario_manana, horario_tarde, nota
+             from dias_especiales order by fecha desc`
+  ).map(aEspecial);
+}
+
+export async function guardarEspecial(d: DiaEspecial, por: string, db: Db = sql) {
+  await db`
+    insert into dias_especiales (fecha, personas_manana, personas_tarde, horario_manana, horario_tarde, nota, creado_por)
+    values (${d.fecha}::date, ${d.personasManana}, ${d.personasTarde}, ${d.horarioManana}, ${d.horarioTarde}, ${d.nota}, ${por})
+    on conflict (fecha) do update set personas_manana = excluded.personas_manana,
+      personas_tarde = excluded.personas_tarde, horario_manana = excluded.horario_manana,
+      horario_tarde = excluded.horario_tarde, nota = excluded.nota`;
+}
+
+export async function eliminarEspecial(fecha: string, db: Db = sql) {
+  return (await db`delete from dias_especiales where fecha = ${fecha}::date`).count;
+}
+
+/** Reemplaza solo los turnos de un día; los estados no cambian (un día especial no altera la rotación). */
+export async function reemplazarTurnosDia(fecha: string, turnos: FilaTurno[], db: Db = sql) {
+  await db`delete from horario_turnos where fecha = ${fecha}::date`;
+  const filas = turnos.map((t) => ({
+    fecha: t.fecha,
+    turno: t.turno,
+    puesto: t.puesto,
+    colaborador: t.colaborador,
+    editado_manual: t.editadoManual,
+  }));
+  if (filas.length) await db`insert into horario_turnos ${db(filas)}`;
 }
 
 export async function enlaceActivo(anio: number, db: Db = sql): Promise<string | null> {

@@ -11,6 +11,7 @@ import {
   enRotacion,
   fechaCorta,
   nombreCorto,
+  sumarDias,
   type Ausencia,
   type DatosAusencia,
   type TipoAusencia,
@@ -22,6 +23,8 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cardClass } from "@/components/dashboard/CardHeading";
 import { ConfirmDialog } from "@/components/usuarios/ConfirmDialog";
+import { parseDiaStr } from "@/components/reportes/fechas";
+import { CampoFecha } from "@/components/horarios/CampoFecha";
 
 const VACIA: DatosAusencia = { colaborador: COLABORADORES[0], tipo: "vacaciones", inicio: "", retorno: "", nota: "" };
 
@@ -182,11 +185,24 @@ export function AusenciasTab({ onCambio }: { onCambio: () => void }) {
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-1.5">
                   <Label htmlFor="aus-inicio">Desde</Label>
-                  <Input id="aus-inicio" type="date" value={form.datos.inicio} onChange={(e) => set("inicio", e.target.value)} />
+                  <CampoFecha
+                    id="aus-inicio"
+                    valor={form.datos.inicio}
+                    onCambio={(f) =>
+                      setForm((x) =>
+                        x && { ...x, datos: { ...x.datos, inicio: f, retorno: x.datos.retorno > f ? x.datos.retorno : "" } },
+                      )
+                    }
+                  />
                 </div>
                 <div className="grid gap-1.5">
                   <Label htmlFor="aus-retorno">Vuelve el</Label>
-                  <Input id="aus-retorno" type="date" value={form.datos.retorno} onChange={(e) => set("retorno", e.target.value)} />
+                  <CampoFecha
+                    id="aus-retorno"
+                    valor={form.datos.retorno}
+                    onCambio={(f) => set("retorno", f)}
+                    deshabilitadas={form.datos.inicio ? { before: parseDiaStr(sumarDias(form.datos.inicio, 1)) } : undefined}
+                  />
                 </div>
               </div>
               <div className="grid gap-1.5">

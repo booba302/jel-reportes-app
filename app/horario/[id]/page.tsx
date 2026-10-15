@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AvisoExpediente } from "@/components/expediente/Expediente";
 import { CalendarioMes, PieHorario, type Casilla } from "@/components/horarios/CalendarioMes";
 import { nombreMesAnio } from "@/components/reportes/fechas";
+import type { DiaEspecial } from "@/lib/horario";
 
 type Respuesta =
   | {
@@ -16,6 +17,7 @@ type Respuesta =
       mes: string;
       turnos: Casilla[];
       ausencias: { colaborador: string; tipo: string; inicio: string; retorno: string }[];
+      especiales: DiaEspecial[];
     }
   | { estado: "invalido" | "no-disponible" | "error" }
   | { estado: "sin-meses"; anio: number };
@@ -63,8 +65,8 @@ export default function VisorHorario() {
             </SelectContent>
           </Select>
         </div>
-        <CalendarioMes mes={r.mes} turnos={r.turnos} />
-        <PieHorario ausencias={r.ausencias} />
+        <CalendarioMes mes={r.mes} turnos={r.turnos} especiales={r.especiales} />
+        <PieHorario ausencias={r.ausencias} especiales={r.especiales} />
       </div>
     );
   } else {

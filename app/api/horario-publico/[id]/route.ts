@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { esMes, hoyEnZona, mesesVisibles, primerDia, ultimoDia } from "@/lib/horario";
-import { ausenciasQueTocan, enlacePorId, mesesGenerados, turnosEntre } from "@/lib/horarioRepo";
+import { ausenciasQueTocan, enlacePorId, especialesEntre, mesesGenerados, turnosEntre } from "@/lib/horarioRepo";
 
 const sinCache = { headers: { "Cache-Control": "private, no-store" } };
 
@@ -25,9 +25,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       return NextResponse.json({ estado: "no-disponible" }, { status: 403 });
     const mes = pedido ?? meses.at(-1)!;
 
-    const [turnos, ausencias] = await Promise.all([
+    const [turnos, ausencias, especiales] = await Promise.all([
       turnosEntre(primerDia(mes), ultimoDia(mes)),
       ausenciasQueTocan(primerDia(mes), ultimoDia(mes)),
+      especialesEntre(primerDia(mes), ultimoDia(mes)),
     ]);
     return NextResponse.json(
       {
@@ -42,6 +43,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
           inicio: a.inicio,
           retorno: a.retorno,
         })),
+        especiales,
       },
       sinCache,
     );

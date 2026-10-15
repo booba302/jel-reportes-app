@@ -60,6 +60,33 @@ export interface Ausencia extends AusenciaRango {
   nota: string;
 }
 
+/**
+ * Día con turnos reducidos (Navidad, 31/12…). La rotación avanza igual que un día normal:
+ * con 1 persona se queda quien iba en PEN/USD/MXN y cubre todas las monedas; con 0 el turno se cierra.
+ */
+export type Personas = 0 | 1 | 2;
+export interface DiaEspecial {
+  fecha: string;
+  personasManana: Personas;
+  personasTarde: Personas;
+  /** Vacío = horario normal del turno. */
+  horarioManana: string;
+  horarioTarde: string;
+  nota: string;
+}
+export const personasTurno = (e: DiaEspecial | undefined, turno: Turno): Personas =>
+  !e ? 2 : turno === "manana" ? e.personasManana : e.personasTarde;
+export const horarioTurno = (e: DiaEspecial | undefined, turno: Turno) =>
+  (turno === "manana" ? e?.horarioManana : e?.horarioTarde) || HORA_TURNO[turno];
+export const TODAS_LAS_MONEDAS = "Todas las monedas";
+/** "1 persona, todas las monedas · 08:00 a.m. – 12:00 p.m." o "Cerrado". */
+export function describirTurnoEspecial(e: DiaEspecial, turno: Turno) {
+  const n = personasTurno(e, turno);
+  if (n === 0) return "Cerrado";
+  const horario = turno === "manana" ? e.horarioManana : e.horarioTarde;
+  return [n === 1 ? "1 persona, todas las monedas" : "2 personas", horario].filter(Boolean).join(" · ");
+}
+
 export interface FilaTurno {
   fecha: string;
   turno: Turno;
@@ -163,7 +190,9 @@ export function generarHorario(
   desde: string,
   hasta: string,
   ausencias: AusenciaRango[],
+  especiales: DiaEspecial[] = [],
 ): ResultadoGeneracion {
+  const especialDe = new Map(especiales.map((d) => [d.fecha, d]));
   const turnos: FilaTurno[] = [];
   const estados: EstadoDia[] = [];
   const sinCobertura: string[] = [];
@@ -182,10 +211,9 @@ export function generarHorario(
       const a = e.orden[e.pos % n];
       const b = e.orden[(e.pos + 1) % n];
       const [pen, clp] = e.invertido ? [b, a] : [a, b];
-      turnos.push(
-        { fecha, turno, puesto: "pen_usd_mxn", colaborador: pen, editadoManual: false },
-        { fecha, turno, puesto: "clp", colaborador: clp, editadoManual: false },
-      );
+      const personas = personasTurno(especialDe.get(fecha), turno);
+      if (personas >= 1) turnos.push({ fecha, turno, puesto: "pen_usd_mxn", colaborador: pen, editadoManual: false });
+      if (personas === 2) turnos.push({ fecha, turno, puesto: "clp", colaborador: clp, editadoManual: false });
       e = avanzar(e);
     }
   }
@@ -299,4 +327,25 @@ export function validarAusencia(b: unknown): DatosAusencia | string {
   if (!esFecha(inicio) || !esFecha(retorno)) return "Fechas inválidas.";
   if (retorno <= inicio) return "El retorno debe ser posterior al inicio.";
   return { colaborador, tipo, inicio, retorno, nota: String(o.nota ?? "").trim().slice(0, 300) };
+}
+
+// ── Días especiales desde la API ──────────────────────────────────────────
+
+const esPersonas = (n: unknown): n is Personas => n === 0 || n === 1 || n === 2;
+
+/** Devuelve los datos limpios o el mensaje de error. */
+export function validarDiaEspecial(b: unknown): DiaEspecial | string {
+  const o = (b ?? {}) as Record<string, unknown>;
+  const { fecha, personasManana, personasTarde } = o;
+  if (!esFecha(fecha)) return "Fecha inválida.";
+  if (!esPersonas(personasManana) || !esPersonas(personasTarde)) return "Cantidad de personas inválida.";
+  const texto = (v: unknown, max: number) => String(v ?? "").trim().slice(0, max);
+  return {
+    fecha,
+    personasManana,
+    personasTarde,
+    horarioManana: personasManana ? texto(o.horarioManana, 40) : "",
+    horarioTarde: personasTarde ? texto(o.horarioTarde, 40) : "",
+    nota: texto(o.nota, 100),
+  };
 }

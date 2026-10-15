@@ -5,18 +5,30 @@ import { ChevronLeft, ChevronRight, ShieldAlert, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/app/context/AuthContext";
 import { apiFetch } from "@/lib/apiFetch";
-import { TIPOS_AUSENCIA, conflictos, hoyEnZona, sumarMeses, type Ausencia, type FilaTurno } from "@/lib/horario";
+import {
+  TIPOS_AUSENCIA,
+  conflictos,
+  hoyEnZona,
+  sumarMeses,
+  type Ausencia,
+  type DiaEspecial,
+  type FilaTurno,
+} from "@/lib/horario";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { nombreMesAnio } from "@/components/reportes/fechas";
-import { CalendarioMes, PieHorario, type Casilla } from "@/components/horarios/CalendarioMes";
+import { CalendarioMes, PieHorario, type CasillaEditable } from "@/components/horarios/CalendarioMes";
 import { EditarTurnoDialog } from "@/components/horarios/EditarTurnoDialog";
 import { AusenciasTab } from "@/components/horarios/AusenciasTab";
 import { EnlaceTab } from "@/components/horarios/EnlaceTab";
+import { EspecialesTab } from "@/components/horarios/EspecialesTab";
+import { documentoHorario } from "@/components/horarios/exportar";
+import { PdfButton } from "@/components/pdf/PdfButton";
+import { ExportPdfDialog } from "@/components/pdf/ExportPdfDialog";
 
-type Pestana = "horario" | "ausencias" | "enlace";
-type DatosMes = { turnos: FilaTurno[]; ausencias: Ausencia[]; puedeGenerar: boolean };
+type Pestana = "horario" | "ausencias" | "especiales" | "enlace";
+type DatosMes = { turnos: FilaTurno[]; ausencias: Ausencia[]; especiales: DiaEspecial[]; puedeGenerar: boolean };
 
 export default function HorariosPage() {
   const { userData } = useAuth();
@@ -26,8 +38,9 @@ export default function HorariosPage() {
   const [mes, setMes] = useState(() => hoy.slice(0, 7));
   const [datos, setDatos] = useState<{ mes: string; d: DatosMes } | null>(null);
   const [version, setVersion] = useState(0);
-  const [editando, setEditando] = useState<Casilla | null>(null);
+  const [editando, setEditando] = useState<CasillaEditable | null>(null);
   const [generando, setGenerando] = useState(false);
+  const [pdfAbierto, setPdfAbierto] = useState(false);
 
   const recargar = useCallback(() => setVersion((v) => v + 1), []);
 
@@ -43,6 +56,10 @@ export default function HorariosPage() {
   }, [esAdmin, mes, version]);
 
   const d = datos?.mes === mes ? datos.d : null;
+  const ausenciasMes = useMemo(
+    () => (d ? d.ausencias.map((a) => ({ ...a, tipo: TIPOS_AUSENCIA[a.tipo] })) : []),
+    [d],
+  );
   const avisos = useMemo(() => (d ? conflictos(d.turnos, d.ausencias) : new Map<string, string>()), [d]);
 
   if (!esAdmin) {
@@ -75,6 +92,7 @@ export default function HorariosPage() {
         <ToggleGroup type="single" variant="outline" value={pestana} onValueChange={(v) => v && setPestana(v as Pestana)}>
           <ToggleGroupItem value="horario">Horario</ToggleGroupItem>
           <ToggleGroupItem value="ausencias">Ausencias</ToggleGroupItem>
+          <ToggleGroupItem value="especiales">Días especiales</ToggleGroupItem>
           <ToggleGroupItem value="enlace">Enlace</ToggleGroupItem>
         </ToggleGroup>
       </div>
@@ -89,11 +107,14 @@ export default function HorariosPage() {
             <Button size="icon" variant="outline" aria-label="Mes siguiente" onClick={() => setMes(sumarMeses(mes, 1))}>
               <ChevronRight className="size-4" />
             </Button>
-            {d?.puedeGenerar && (
-              <Button className="ml-auto" onClick={generar} disabled={generando}>
-                <Sparkles className="size-4" /> Generar mes
-              </Button>
-            )}
+            <div className="ml-auto flex items-center gap-2">
+              {d?.puedeGenerar && (
+                <Button onClick={generar} disabled={generando}>
+                  <Sparkles className="size-4" /> Generar mes
+                </Button>
+              )}
+              <PdfButton onClick={() => setPdfAbierto(true)} disabled={!d || d.turnos.length === 0} />
+            </div>
           </div>
           {!d ? (
             <Skeleton className="h-[480px] rounded-xl" />
@@ -106,14 +127,38 @@ export default function HorariosPage() {
               {avisos.size > 0 && (
                 <p className="text-sm text-warning-text">Hay {avisos.size} casillas con aviso (pasa el cursor para ver el motivo).</p>
               )}
-              <CalendarioMes mes={mes} turnos={d.turnos} conflictos={avisos} onEditar={setEditando} />
-              <PieHorario ausencias={d.ausencias.map((a) => ({ ...a, tipo: TIPOS_AUSENCIA[a.tipo] }))} />
+              <CalendarioMes
+                mes={mes}
+                turnos={d.turnos}
+                especiales={d.especiales}
+                conflictos={avisos}
+                onEditar={setEditando}
+              />
+              <PieHorario ausencias={ausenciasMes} especiales={d.especiales} />
             </>
           )}
         </>
       )}
       {pestana === "ausencias" && <AusenciasTab onCambio={recargar} />}
+      {pestana === "especiales" && <EspecialesTab onCambio={recargar} />}
       {pestana === "enlace" && <EnlaceTab anio={Number(hoy.slice(0, 4))} />}
+
+      <ExportPdfDialog
+        open={pdfAbierto}
+        onOpenChange={setPdfAbierto}
+        titulo="Exportar horario"
+        doc={
+          d && d.turnos.length > 0
+            ? documentoHorario({
+                mes,
+                turnos: d.turnos,
+                ausencias: ausenciasMes,
+                especiales: d.especiales,
+                usuario: userData?.nombre || "Usuario",
+              })
+            : null
+        }
+      />
 
       <EditarTurnoDialog
         casilla={editando}

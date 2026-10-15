@@ -87,6 +87,7 @@ function BloquePreview({ b }: { b: Bloque }) {
                     <td
                       key={j}
                       className={cn(
+                        "whitespace-pre-line align-top",
                         b.compacta ? "px-0.5 py-0.5" : "px-1.5 py-1",
                         typeof c !== "string" && c.negrita && "font-bold",
                       )}
