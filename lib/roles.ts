@@ -46,5 +46,8 @@ export type Rol = keyof typeof ROLES;
 export const esRolValido = (r: unknown): r is Rol =>
   typeof r === "string" && Object.prototype.hasOwnProperty.call(ROLES, r);
 
+/** Gestionan el horario de retiros internacionales: los agentes internacionales y el admin. */
+export const gestionaHorarioInternacional = (rol: string) => rol === "admin" || rol === "agente_retiros_internacional";
+
 /** Etiqueta del rol; si el documento trae un rol viejo o desconocido, se muestra tal cual. */
 export const etiquetaRol = (r: string) => (esRolValido(r) ? ROLES[r].label : r || "Sin rol");

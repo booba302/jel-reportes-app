@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { HttpError } from "@/lib/httpError";
+import { gestionaHorarioInternacional } from "@/lib/roles";
 
 export { HttpError };
 
@@ -30,6 +31,14 @@ export async function requireUser(req: Request): Promise<Sesion> {
 export async function requireAdmin(req: Request): Promise<Sesion> {
   const s = await requireUser(req);
   if (s.rol !== "admin") throw new HttpError(403, "Solo un administrador puede hacer esto.");
+  return s;
+}
+
+/** Agentes internacionales y admin: crean y ajustan el horario de turnos internacional. */
+export async function requireGestorHorario(req: Request): Promise<Sesion> {
+  const s = await requireUser(req);
+  if (!gestionaHorarioInternacional(s.rol))
+    throw new HttpError(403, "Solo el equipo de retiros internacionales puede gestionar este horario.");
   return s;
 }
 
