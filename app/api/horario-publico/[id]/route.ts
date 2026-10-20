@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { esMes, hoyEnZona, mesesVisibles, primerDia, ultimoDia } from "@/lib/horario";
-import { ausenciasQueTocan, enlacePorId, especialesEntre, mesesGenerados, turnosEntre } from "@/lib/horarioRepo";
+import { esMes, hoyEnZona, mesesVisibles } from "@/lib/horario";
+import { enlacePorId, mesesGenerados } from "@/lib/horarioRepo";
+import { vistaMes } from "@/lib/horarioServer";
 
 const sinCache = { headers: { "Cache-Control": "private, no-store" } };
 
@@ -25,26 +26,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       return NextResponse.json({ estado: "no-disponible" }, { status: 403 });
     const mes = pedido ?? meses.at(-1)!;
 
-    const [turnos, ausencias, especiales] = await Promise.all([
-      turnosEntre(primerDia(mes), ultimoDia(mes)),
-      ausenciasQueTocan(primerDia(mes), ultimoDia(mes)),
-      especialesEntre(primerDia(mes), ultimoDia(mes)),
-    ]);
     return NextResponse.json(
-      {
-        estado: "ok",
-        anio: enlace.anio,
-        meses,
-        mes,
-        turnos: turnos.map(({ fecha, turno, puesto, colaborador }) => ({ fecha, turno, puesto, colaborador })),
-        ausencias: ausencias.map((a) => ({
-          colaborador: a.colaborador,
-          tipo: a.tipo === "vacaciones" ? "Vacaciones" : "Ausencia",
-          inicio: a.inicio,
-          retorno: a.retorno,
-        })),
-        especiales,
-      },
+      { estado: "ok", anio: enlace.anio, meses, mes, ...(await vistaMes(mes)) },
       sinCache,
     );
   } catch (err) {

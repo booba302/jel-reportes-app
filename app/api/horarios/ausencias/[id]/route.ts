@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { errorResponse, HttpError, requireAdmin } from "@/lib/authServer";
+import { errorResponse, HttpError, requireGestorHorario } from "@/lib/authServer";
 import { validarAusencia } from "@/lib/horario";
 import { actualizarAusencia, ausenciaPorId, eliminarAusencia } from "@/lib/horarioRepo";
 import { aplicarCambio } from "@/lib/horarioServer";
@@ -15,7 +15,7 @@ async function cargar(params: Promise<{ id: string }>) {
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdmin(request);
+    await requireGestorHorario(request);
     const antes = await cargar(params);
     const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const datos = validarAusencia(b);
@@ -31,7 +31,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    await requireAdmin(request);
+    await requireGestorHorario(request);
     const antes = await cargar(params);
     const confirmar = new URL(request.url).searchParams.get("confirmar") === "1";
     await aplicarCambio({ antes, despues: null }, confirmar, (tx) => eliminarAusencia(antes.id, tx));

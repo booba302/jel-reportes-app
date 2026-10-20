@@ -47,6 +47,16 @@ export async function marcarMes(mes: string, por: string, db: Db = sql) {
   await db`insert into horario_meses (mes, generado_por) values (${mes}, ${por}) on conflict (mes) do nothing`;
 }
 
+/**
+ * Borra los turnos del mes y los estados posteriores a su día 1; el estado del día 1 queda
+ * para poder volver a generarlo. Llamar dentro de una transacción.
+ */
+export async function borrarMes(mes: string, desde: string, hasta: string, db: Db = sql) {
+  await db`delete from horario_turnos where fecha between ${desde}::date and ${hasta}::date`;
+  await db`delete from horario_estado where fecha > ${desde}::date`;
+  await db`delete from horario_meses where mes = ${mes}`;
+}
+
 export async function estadoEn(fecha: string, db: Db = sql): Promise<EstadoRotacion | null> {
   const [r] = await db`select estado from horario_estado where fecha = ${fecha}::date`;
   return r ? (r.estado as EstadoRotacion) : null;

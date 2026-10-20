@@ -6,6 +6,7 @@ import {
   generarHorario,
   hoyEnZona,
   primerDia,
+  puedeEliminarMes,
   rangoRegeneracion,
   ultimoDia,
   type AusenciaRango,
@@ -36,6 +37,40 @@ export async function generarMes(mes: string, por: string) {
     await repo.guardarGeneracion(r, desde, hasta, tx);
     await repo.marcarMes(mes, por, tx);
   });
+}
+
+/** Elimina el último mes generado si aún no empezó; se puede volver a generar después. */
+export async function eliminarMes(mes: string) {
+  await sql.begin(async (tx) => {
+    if (!puedeEliminarMes(mes, hoyEnZona(), await repo.mesesGenerados(tx)))
+      throw new HttpError(409, "Solo se puede eliminar el último mes generado, y no el mes en curso.");
+    const desde = primerDia(mes);
+    if (!(await repo.estadoEn(desde, tx)))
+      throw new HttpError(409, "Ese mes no se podría volver a generar: no se elimina.");
+    await repo.borrarMes(mes, desde, ultimoDia(mes), tx);
+  });
+}
+
+/**
+ * Lo que ven los colaboradores de un mes: turnos sin marcas de edición y ausencias sin
+ * nota ni tipo (más allá de "Vacaciones"/"Ausencia").
+ */
+export async function vistaMes(mes: string) {
+  const [turnos, ausencias, especiales] = await Promise.all([
+    repo.turnosEntre(primerDia(mes), ultimoDia(mes)),
+    repo.ausenciasQueTocan(primerDia(mes), ultimoDia(mes)),
+    repo.especialesEntre(primerDia(mes), ultimoDia(mes)),
+  ]);
+  return {
+    turnos: turnos.map(({ fecha, turno, puesto, colaborador }) => ({ fecha, turno, puesto, colaborador })),
+    ausencias: ausencias.map((a) => ({
+      colaborador: a.colaborador,
+      tipo: a.tipo === "vacaciones" ? "Vacaciones" : "Ausencia",
+      inicio: a.inicio,
+      retorno: a.retorno,
+    })),
+    especiales,
+  };
 }
 
 export type CambioAusencia = { antes: AusenciaRango | null; despues: AusenciaRango | null };

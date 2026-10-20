@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { errorResponse, HttpError, requireAdmin } from "@/lib/authServer";
+import { errorResponse, HttpError, requireGestorHorario } from "@/lib/authServer";
 import { validarAusencia } from "@/lib/horario";
 import { ausenciaPorId } from "@/lib/horarioRepo";
 import { impactoCambio } from "@/lib/horarioServer";
@@ -7,7 +7,7 @@ import { impactoCambio } from "@/lib/horarioServer";
 /** Antes de guardar: cuántas casillas editadas a mano se perderían (crear: sin id; borrar: sin ausencia). */
 export async function POST(request: Request) {
   try {
-    await requireAdmin(request);
+    await requireGestorHorario(request);
     const b = (await request.json().catch(() => ({}))) as { id?: unknown; ausencia?: unknown };
     const antes = typeof b.id === "string" ? await ausenciaPorId(b.id).catch(() => null) : null;
     if (typeof b.id === "string" && !antes) throw new HttpError(404, "La ausencia no existe.");

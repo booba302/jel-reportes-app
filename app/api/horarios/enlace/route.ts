@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { errorResponse, HttpError, requireAdmin } from "@/lib/authServer";
+import { errorResponse, HttpError, requireGestorHorario } from "@/lib/authServer";
 import { crearEnlace, enlaceActivo } from "@/lib/horarioRepo";
 
 const leerAnio = (v: unknown) => {
@@ -11,7 +11,7 @@ const leerAnio = (v: unknown) => {
 /** Enlace activo del año; se crea la primera vez. */
 export async function GET(request: Request) {
   try {
-    const s = await requireAdmin(request);
+    const s = await requireGestorHorario(request);
     const anio = leerAnio(new URL(request.url).searchParams.get("anio"));
     const id = (await enlaceActivo(anio)) ?? (await crearEnlace(anio, s.nombre || s.email));
     return NextResponse.json({ success: true, id });
@@ -23,7 +23,7 @@ export async function GET(request: Request) {
 /** Reemplaza el enlace del año: el anterior deja de funcionar. */
 export async function POST(request: Request) {
   try {
-    const s = await requireAdmin(request);
+    const s = await requireGestorHorario(request);
     const { anio } = (await request.json().catch(() => ({}))) as { anio?: unknown };
     const id = await crearEnlace(leerAnio(anio), s.nombre || s.email);
     return NextResponse.json({ success: true, id });

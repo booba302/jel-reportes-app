@@ -57,7 +57,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const isPublicRoute =
     pathname === "/login" ||
     pathname.startsWith("/evaluacion-operador") ||
-    pathname.startsWith("/horario/"); // "/horarios" (admin) no entra: lleva la barra
+    pathname.startsWith("/horario/"); // "/horarios" (gestión) no entra: lleva la barra
 
   const expulsar = useCallback(async (motivo: MotivoSalida) => {
     motivoRef.current = motivo;

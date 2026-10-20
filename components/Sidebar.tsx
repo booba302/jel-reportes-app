@@ -37,6 +37,8 @@ type MenuItem = {
   href: string;
   requireAdmin?: boolean;
   allowedRoles?: string[];
+  /** Nombre que ve el admin cuando no es el mismo que ve el rol dueño del ítem. */
+  labelAdmin?: string;
 };
 
 type MenuGroup = {
@@ -62,7 +64,13 @@ const menuGroups: MenuGroup[] = [
         icon: SquareCheck,
         href: "/evaluacion-diaria",
       },
-      { label: "Horarios", icon: CalendarClock, href: "/horarios", requireAdmin: true },
+      {
+        label: "Horario",
+        labelAdmin: "Horarios internacional",
+        icon: CalendarClock,
+        href: "/horarios",
+        allowedRoles: ["agente_retiros_internacional"],
+      },
     ],
   },
   {
@@ -203,7 +211,7 @@ export function Sidebar({
                       )}
                     >
                       <item.icon className="size-4 shrink-0" />
-                      <span className="truncate">{item.label}</span>
+                      <span className="truncate">{(isAdmin && item.labelAdmin) || item.label}</span>
                       {item.requireAdmin && (
                         <span className="ml-auto rounded-md border border-input px-1.5 text-[11px] font-medium text-muted-foreground">
                           Admin

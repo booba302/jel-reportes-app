@@ -16,6 +16,7 @@ const BREADCRUMBS: Record<string, [string, string]> = {
   "/": ["Analítica", "Visión de rendimiento"],
   "/reportes": ["Gestión operativa", "Reportes"],
   "/evaluacion-diaria": ["Gestión operativa", "Evaluación diaria"],
+  "/horarios": ["Gestión operativa", "Horarios"],
   "/auditoria-diaria": ["Analítica", "Auditoría diaria"],
   "/monitor-regional": ["Analítica", "Monitor regional"],
   "/cierre-mensual": ["Analítica", "Cierre mensual"],

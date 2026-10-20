@@ -5,6 +5,7 @@ import {
   estaAusente,
   hoyEnZona,
   mesesVisibles,
+  puedeEliminarMes,
   rangoRegeneracion,
   sumarDias,
   ultimoDia,
@@ -12,6 +13,9 @@ import {
   generarHorario,
   personasTurno,
   validarDiaEspecial,
+  formatoHora,
+  rangoHorario,
+  separarHorario,
   type AusenciaRango,
   type DiaEspecial,
   type EstadoRotacion,
@@ -369,5 +373,36 @@ describe("días especiales", () => {
     expect(validarDiaEspecial({ ...navidad, personasTarde: 3 })).toBe("Cantidad de personas inválida.");
     expect(validarDiaEspecial({ ...navidad, fecha: "2026-02-30" })).toBe("Fecha inválida.");
     expect(validarDiaEspecial({ ...navidad, nota: "  Navidad  " })).toEqual(navidad);
+    expect(validarDiaEspecial({ ...navidad, horarioManana: "de 8 a 12" })).toMatch(/Horario inválido/);
+    expect(validarDiaEspecial({ ...navidad, horarioManana: "12:00 p.m. – 08:00 a.m." })).toMatch(/Horario inválido/);
+    expect(validarDiaEspecial({ ...navidad, horarioManana: "07:00 a.m. – 12:00 p.m." })).toMatch(/Horario inválido/);
+    expect(validarDiaEspecial({ ...navidad, horarioManana: "08:30 a.m. – 12:00 p.m." })).toMatch(/Horario inválido/);
+  });
+
+  test("horas: formato, rango y vuelta atrás", () => {
+    expect(formatoHora("00:30")).toBe("12:30 a.m.");
+    expect(formatoHora("12:00")).toBe("12:00 p.m.");
+    expect(formatoHora("15:00")).toBe("03:00 p.m.");
+    expect(rangoHorario("08:00", "15:00")).toBe("08:00 a.m. – 03:00 p.m.");
+    expect(separarHorario("08:00 a.m. – 03:00 p.m.")).toEqual({ desde: "08:00", hasta: "15:00" });
+    expect(separarHorario("12:00 a.m. – 12:30 p.m.")).toEqual({ desde: "00:00", hasta: "12:30" });
+    expect(separarHorario("de 8 a 12")).toBeNull();
+  });
+});
+
+describe("puedeEliminarMes", () => {
+  const gen = ["2026-10", "2026-11", "2026-12"];
+  test("el último generado si es futuro", () => {
+    expect(puedeEliminarMes("2026-12", "2026-10-15", gen)).toBe(true);
+  });
+  test("no uno que no es el último", () => {
+    expect(puedeEliminarMes("2026-11", "2026-10-15", gen)).toBe(false);
+  });
+  test("no el mes en curso ni uno pasado", () => {
+    expect(puedeEliminarMes("2026-10", "2026-10-15", ["2026-10"])).toBe(false);
+    expect(puedeEliminarMes("2026-12", "2027-01-02", gen)).toBe(false);
+  });
+  test("no si no hay nada generado", () => {
+    expect(puedeEliminarMes("2026-12", "2026-10-15", [])).toBe(false);
   });
 });

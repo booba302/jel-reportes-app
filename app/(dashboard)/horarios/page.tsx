@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, ShieldAlert, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, ShieldAlert, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/app/context/AuthContext";
 import { apiFetch } from "@/lib/apiFetch";
+import { gestionaHorarioInternacional } from "@/lib/roles";
 import {
   TIPOS_AUSENCIA,
   conflictos,
@@ -26,13 +27,15 @@ import { EspecialesTab } from "@/components/horarios/EspecialesTab";
 import { documentoHorario } from "@/components/horarios/exportar";
 import { PdfButton } from "@/components/pdf/PdfButton";
 import { ExportPdfDialog } from "@/components/pdf/ExportPdfDialog";
+import { ConfirmDialog } from "@/components/usuarios/ConfirmDialog";
 
 type Pestana = "horario" | "ausencias" | "especiales" | "enlace";
-type DatosMes = { turnos: FilaTurno[]; ausencias: Ausencia[]; especiales: DiaEspecial[]; puedeGenerar: boolean };
+type DatosMes = { turnos: FilaTurno[]; ausencias: Ausencia[]; especiales: DiaEspecial[]; puedeGenerar: boolean; puedeEliminar: boolean };
 
 export default function HorariosPage() {
   const { userData } = useAuth();
   const esAdmin = userData?.rol === "admin";
+  const puedeGestionar = gestionaHorarioInternacional(userData?.rol ?? "");
   const [hoy] = useState(() => hoyEnZona());
   const [pestana, setPestana] = useState<Pestana>("horario");
   const [mes, setMes] = useState(() => hoy.slice(0, 7));
@@ -41,11 +44,13 @@ export default function HorariosPage() {
   const [editando, setEditando] = useState<CasillaEditable | null>(null);
   const [generando, setGenerando] = useState(false);
   const [pdfAbierto, setPdfAbierto] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
+  const [borrandoMes, setBorrandoMes] = useState<string | null>(null);
 
   const recargar = useCallback(() => setVersion((v) => v + 1), []);
 
   useEffect(() => {
-    if (!esAdmin) return;
+    if (!puedeGestionar) return;
     let cancelado = false;
     apiFetch<DatosMes>(`/api/horarios?mes=${mes}`)
       .then((d) => !cancelado && setDatos({ mes, d }))
@@ -53,7 +58,7 @@ export default function HorariosPage() {
     return () => {
       cancelado = true;
     };
-  }, [esAdmin, mes, version]);
+  }, [puedeGestionar, mes, version]);
 
   const d = datos?.mes === mes ? datos.d : null;
   const ausenciasMes = useMemo(
@@ -62,12 +67,12 @@ export default function HorariosPage() {
   );
   const avisos = useMemo(() => (d ? conflictos(d.turnos, d.ausencias) : new Map<string, string>()), [d]);
 
-  if (!esAdmin) {
+  if (!puedeGestionar) {
     return (
       <div className="mx-auto flex w-full max-w-[1240px] flex-col items-center gap-3 px-4 py-20 text-center">
         <ShieldAlert className="size-12 text-danger-text" />
         <h1 className="text-xl font-semibold">Acceso denegado</h1>
-        <p className="text-muted-foreground">Solo un administrador puede gestionar los horarios.</p>
+        <p className="text-muted-foreground">Solo el equipo de retiros internacionales puede gestionar este horario.</p>
       </div>
     );
   }
@@ -85,10 +90,25 @@ export default function HorariosPage() {
     }
   };
 
+  /** El borrado sigue de fondo: el diálogo se cierra al instante y un toast avisa al terminar. */
+  const eliminar = async () => {
+    const m = mes;
+    setEliminando(false);
+    setBorrandoMes(m);
+    const id = toast.loading(`Eliminando ${nombreMesAnio(m)}…`);
+    apiFetch(`/api/horarios?mes=${m}`, { method: "DELETE" })
+      .then(() => toast.success(`${nombreMesAnio(m)} eliminado`, { id }))
+      .catch((err) => toast.error(err instanceof Error ? err.message : "No se pudo eliminar el mes.", { id }))
+      .finally(() => {
+        setBorrandoMes(null);
+        recargar();
+      });
+  };
+
   return (
     <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-4 px-4 pb-9 pt-6 md:px-7">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold">Horarios</h1>
+        <h1 className="text-xl font-semibold">{esAdmin ? "Horarios internacional" : "Horario"}</h1>
         <ToggleGroup type="single" variant="outline" value={pestana} onValueChange={(v) => v && setPestana(v as Pestana)}>
           <ToggleGroupItem value="horario">Horario</ToggleGroupItem>
           <ToggleGroupItem value="ausencias">Ausencias</ToggleGroupItem>
@@ -111,6 +131,11 @@ export default function HorariosPage() {
               {d?.puedeGenerar && (
                 <Button onClick={generar} disabled={generando}>
                   <Sparkles className="size-4" /> Generar mes
+                </Button>
+              )}
+              {d?.puedeEliminar && !borrandoMes && (
+                <Button variant="outline" onClick={() => setEliminando(true)}>
+                  <Trash2 className="size-4" /> Eliminar mes
                 </Button>
               )}
               <PdfButton onClick={() => setPdfAbierto(true)} disabled={!d || d.turnos.length === 0} />
@@ -158,6 +183,16 @@ export default function HorariosPage() {
               })
             : null
         }
+      />
+
+      <ConfirmDialog
+        open={eliminando}
+        onOpenChange={setEliminando}
+        titulo="Eliminar mes"
+        descripcion={`Se borra el horario de ${nombreMesAnio(mes)}, incluidas las casillas editadas a mano. Las ausencias y los días especiales se conservan y el mes se puede volver a generar.`}
+        accion="Eliminar"
+        tono="danger"
+        onConfirmar={eliminar}
       />
 
       <EditarTurnoDialog

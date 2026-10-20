@@ -80,6 +80,28 @@ export const personasTurno = (e: DiaEspecial | undefined, turno: Turno): Persona
 export const horarioTurno = (e: DiaEspecial | undefined, turno: Turno) =>
   (turno === "manana" ? e?.horarioManana : e?.horarioTarde) || HORA_TURNO[turno];
 export const TODAS_LAS_MONEDAS = "Todas las monedas";
+
+/** Horas elegibles para un día especial, en punto: "08:00" … "22:00". */
+export const HORAS = Array.from({ length: 15 }, (_, i) => `${String(8 + i).padStart(2, "0")}:00`);
+/** "15:00" → "03:00 p.m." */
+export function formatoHora(hhmm: string) {
+  const [h, m] = hhmm.split(":").map(Number);
+  return `${String(h % 12 || 12).padStart(2, "0")}:${String(m).padStart(2, "0")} ${h < 12 ? "a.m." : "p.m."}`;
+}
+export const rangoHorario = (desde: string, hasta: string) => `${formatoHora(desde)} – ${formatoHora(hasta)}`;
+/** "08:00 a.m. – 03:00 p.m." → { desde: "08:00", hasta: "15:00" }; null si no tiene ese formato. */
+export function separarHorario(texto: string): { desde: string; hasta: string } | null {
+  const m = /^(\d{2}):(\d{2}) ([ap])\.m\. – (\d{2}):(\d{2}) ([ap])\.m\.$/.exec(texto.trim());
+  if (!m) return null;
+  const a24 = (h: string, min: string, ap: string) => {
+    const n = Number(h);
+    if (n < 1 || n > 12 || (min !== "00" && min !== "30")) return null;
+    return `${String((n % 12) + (ap === "p" ? 12 : 0)).padStart(2, "0")}:${min}`;
+  };
+  const desde = a24(m[1], m[2], m[3]);
+  const hasta = a24(m[4], m[5], m[6]);
+  return desde && hasta ? { desde, hasta } : null;
+}
 /** "1 persona, todas las monedas · 08:00 a.m. – 12:00 p.m." o "Cerrado". */
 export function describirTurnoEspecial(e: DiaEspecial, turno: Turno) {
   const n = personasTurno(e, turno);
@@ -259,6 +281,10 @@ export function mesesVisibles(anio: number, hoy: string, generados: string[]) {
     .sort();
 }
 
+/** Solo se puede eliminar el último mes generado, y solo si es posterior al mes en curso. */
+export const puedeEliminarMes = (mes: string, hoy: string, generados: string[]) =>
+  generados.length > 0 && mes === generados[generados.length - 1] && mes > hoy.slice(0, 7);
+
 // ── Regeneración por cambios en ausencias ─────────────────────────────────
 
 /**
@@ -351,6 +377,11 @@ export function validarDiaEspecial(b: unknown): DiaEspecial | string {
   if (!esFecha(fecha)) return "Fecha inválida.";
   if (!esPersonas(personasManana) || !esPersonas(personasTarde)) return "Cantidad de personas inválida.";
   const texto = (v: unknown, max: number) => String(v ?? "").trim().slice(0, max);
+  for (const h of [texto(o.horarioManana, 40), texto(o.horarioTarde, 40)]) {
+    const r = h ? separarHorario(h) : null;
+    if (h && (!r || !HORAS.includes(r.desde) || !HORAS.includes(r.hasta) || r.hasta <= r.desde))
+      return "Horario inválido: elige horas en punto entre 08:00 a.m. y 10:00 p.m., con el fin después del inicio.";
+  }
   return {
     fecha,
     personasManana,

@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { errorResponse, HttpError, requireAdmin } from "@/lib/authServer";
+import { errorResponse, HttpError, requireGestorHorario } from "@/lib/authServer";
 import { esFecha, PUESTOS, ROTACION, TURNOS, type Puesto, type Turno } from "@/lib/horario";
 import { editarTurno } from "@/lib/horarioRepo";
 
 /** Cambia a mano quién cubre una casilla. */
 export async function PATCH(request: Request) {
   try {
-    await requireAdmin(request);
+    await requireGestorHorario(request);
     const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const { fecha, turno, puesto, colaborador } = b;
     if (!esFecha(fecha) || !TURNOS.includes(turno as Turno) || !PUESTOS.includes(puesto as Puesto))

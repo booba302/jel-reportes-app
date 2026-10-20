@@ -7,10 +7,14 @@ import { apiFetch } from "@/lib/apiFetch";
 import { cn } from "@/lib/utils";
 import {
   ETIQUETA_TURNO,
+  HORAS,
   HORA_TURNO,
   TURNOS,
   describirTurnoEspecial,
   fechaCorta,
+  formatoHora,
+  rangoHorario,
+  separarHorario,
   type DiaEspecial,
   type Personas,
   type Turno,
@@ -23,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cardClass } from "@/components/dashboard/CardHeading";
 import { ConfirmDialog } from "@/components/usuarios/ConfirmDialog";
 import { CampoFecha } from "@/components/horarios/CampoFecha";
+import { cambioDeFondo, confirmarPendiente, type Pendiente } from "@/components/horarios/deFondo";
 
 const VACIO: DiaEspecial = {
   fecha: "",
@@ -44,7 +49,14 @@ const campo = (t: Turno) =>
     ? ({ personas: "personasManana", horario: "horarioManana" } as const)
     : ({ personas: "personasTarde", horario: "horarioTarde" } as const);
 
-type Pendiente = { editadas: number; ejecutar: () => Promise<void> };
+/** Desde/hasta del turno: el horario guardado o, si está vacío o no se entiende, el normal. */
+const horasDe = (t: Turno, horario: string) => separarHorario(horario) ?? separarHorario(HORA_TURNO[t])!;
+
+/** Guarda vacío cuando el rango es el normal del turno. */
+const textoHorario = (t: Turno, desde: string, hasta: string) => {
+  const r = rangoHorario(desde, hasta);
+  return r === HORA_TURNO[t] ? "" : r;
+};
 
 /** Días con turnos reducidos. Si el día ya está generado, el horario se rehace desde ese día. */
 export function EspecialesTab({ onCambio }: { onCambio: () => void }) {
@@ -65,46 +77,60 @@ export function EspecialesTab({ onCambio }: { onCambio: () => void }) {
     };
   }, [version]);
 
-  /** Si se perderían ediciones manuales de ese día, pide confirmación antes de ejecutar. */
-  const conImpacto = async (fecha: string, ejecutar: (confirmar: boolean) => Promise<void>) => {
-    const { editadas } = await apiFetch<{ editadas: number }>(`/api/horarios/especiales?impacto=${fecha}`);
-    const terminar = async (confirmar: boolean) => {
-      await ejecutar(confirmar);
-      cargar();
-      onCambio();
-    };
-    if (editadas > 0) setPendiente({ editadas, ejecutar: () => terminar(true) });
-    else await terminar(false);
-  };
+  /** Corre el cambio de fondo; si borraría ediciones manuales de ese día, antes pide confirmación. */
+  const cambiar = (
+    fecha: string,
+    ejecutar: (confirmar: boolean) => Promise<void>,
+    textos: { cargando: string; listo: string; alFallar?: () => void },
+  ) =>
+    cambioDeFondo({
+      ...textos,
+      medir: async () => (await apiFetch<{ editadas: number }>(`/api/horarios/especiales?impacto=${fecha}`)).editadas,
+      ejecutar,
+      alTerminar: () => {
+        cargar();
+        onCambio();
+      },
+      pedirConfirmacion: setPendiente,
+    });
 
-  const guardar = async () => {
+  /** El formulario se cierra al instante; si falla o se cancela, vuelve a abrirse con lo escrito. */
+  const guardar = () => {
     if (!form) return;
+    const previo = form;
     const { datos, editando } = form;
-    try {
-      await conImpacto(datos.fecha, async (confirmar) => {
+    setForm(null);
+    void cambiar(
+      datos.fecha,
+      async (confirmar) => {
         await apiFetch("/api/horarios/especiales", { method: "PUT", body: JSON.stringify({ ...datos, confirmar }) });
-        toast.success(editando ? "Día especial actualizado" : "Día especial agregado");
-        setForm(null);
-      });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo guardar.");
-    }
+      },
+      {
+        cargando: editando ? "Actualizando día especial…" : "Agregando día especial…",
+        listo: editando ? "Día especial actualizado" : "Día especial agregado",
+        alFallar: () => setForm((f) => f ?? previo),
+      },
+    );
   };
 
-  const eliminar = async (d: DiaEspecial) => {
-    try {
-      await conImpacto(d.fecha, async (confirmar) => {
+  const eliminar = (d: DiaEspecial) =>
+    void cambiar(
+      d.fecha,
+      async (confirmar) => {
         await apiFetch(`/api/horarios/especiales?fecha=${d.fecha}${confirmar ? "&confirmar=1" : ""}`, { method: "DELETE" });
-        toast.success("Día especial eliminado");
-      });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo eliminar.");
-      throw err;
-    }
-  };
+      },
+      { cargando: "Eliminando día especial…", listo: "Día especial eliminado" },
+    );
 
   const set = <K extends keyof DiaEspecial>(k: K, v: DiaEspecial[K]) =>
     setForm((f) => (f ? { ...f, datos: { ...f.datos, [k]: v } } : f));
+  const horarioInvalido =
+    !!form &&
+    TURNOS.some((t) => {
+      const c = campo(t);
+      const h = horasDe(t, form.datos[c.horario]);
+      return form.datos[c.personas] !== 0 && h.hasta <= h.desde;
+    });
   const yaExiste = !form?.editando && !!lista?.some((d) => d.fecha === form?.datos.fecha);
 
   return (
@@ -193,38 +219,53 @@ export function EspecialesTab({ onCambio }: { onCambio: () => void }) {
               {TURNOS.map((t) => {
                 const c = campo(t);
                 const personas = form.datos[c.personas];
+                const { desde, hasta } = horasDe(t, form.datos[c.horario]);
+                const cerrado = personas === 0;
                 return (
-                  <div key={t} className="grid grid-cols-2 gap-3">
-                    <div className="grid gap-1.5">
-                      <Label>{ETIQUETA_TURNO[t]}</Label>
-                      <Select value={String(personas)} onValueChange={(v) => set(c.personas, Number(v) as Personas)}>
-                        <SelectTrigger aria-label={`Personas ${ETIQUETA_TURNO[t]}`}><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {OPCIONES.map((o) => (
-                            <SelectItem key={o.valor} value={String(o.valor)}>{o.texto}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                  <fieldset key={t} className="grid gap-2 rounded-lg border border-border p-3">
+                    <legend className="px-1 text-sm font-medium">{ETIQUETA_TURNO[t]}</legend>
+                    <Select value={String(personas)} onValueChange={(v) => set(c.personas, Number(v) as Personas)}>
+                      <SelectTrigger className="w-full" aria-label={`Personas ${ETIQUETA_TURNO[t]}`}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {OPCIONES.map((o) => (
+                          <SelectItem key={o.valor} value={String(o.valor)}>{o.texto}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="grid grid-cols-2 gap-3">
+                      {(["desde", "hasta"] as const).map((lado) => (
+                        <div key={lado} className="grid min-w-0 gap-1.5">
+                          <Label className="text-xs text-muted-foreground">{lado === "desde" ? "Desde" : "Hasta"}</Label>
+                          <Select
+                            disabled={cerrado}
+                            value={lado === "desde" ? desde : hasta}
+                            onValueChange={(v) =>
+                              set(c.horario, textoHorario(t, lado === "desde" ? v : desde, lado === "hasta" ? v : hasta))
+                            }
+                          >
+                            <SelectTrigger className="w-full" aria-label={`${lado === "desde" ? "Desde" : "Hasta"} ${ETIQUETA_TURNO[t]}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-64">
+                              {HORAS.map((h) => (
+                                <SelectItem key={h} value={h}>{formatoHora(h)}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ))}
                     </div>
-                    <div className="grid gap-1.5">
-                      <Label htmlFor={`esp-horario-${t}`}>Horario (opcional)</Label>
-                      <Input
-                        id={`esp-horario-${t}`}
-                        maxLength={40}
-                        disabled={personas === 0}
-                        placeholder={HORA_TURNO[t]}
-                        value={personas === 0 ? "" : form.datos[c.horario]}
-                        onChange={(e) => set(c.horario, e.target.value)}
-                      />
-                    </div>
-                  </div>
+                    {!cerrado && hasta <= desde && (
+                      <p className="text-xs text-danger-text">La hora de fin debe ser posterior a la de inicio.</p>
+                    )}
+                  </fieldset>
                 );
               })}
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setForm(null)}>Cancelar</Button>
-            <Button onClick={guardar} disabled={!form?.datos.fecha}>Guardar</Button>
+            <Button onClick={guardar} disabled={!form?.datos.fecha || horarioInvalido}>Guardar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -237,27 +278,17 @@ export function EspecialesTab({ onCambio }: { onCambio: () => void }) {
         accion="Eliminar"
         tono="danger"
         onConfirmar={async () => {
-          if (borrando) await eliminar(borrando);
+          if (borrando) eliminar(borrando);
           setBorrando(null);
         }}
       />
 
       <ConfirmDialog
-        open={!!pendiente}
-        onOpenChange={(o) => !o && setPendiente(null)}
+        {...confirmarPendiente(pendiente, () => setPendiente(null))}
         titulo="Se perderán ediciones manuales"
         descripcion={`El horario se rehace desde ese día y se pierden ${pendiente?.editadas ?? 0} casillas que editaste a mano. ¿Continuar?`}
         accion="Continuar"
         tono="warning"
-        onConfirmar={async () => {
-          try {
-            await pendiente?.ejecutar();
-            setPendiente(null);
-          } catch (err) {
-            toast.error(err instanceof Error ? err.message : "No se pudo guardar.");
-            throw err;
-          }
-        }}
       />
     </div>
   );

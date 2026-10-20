@@ -25,10 +25,9 @@ import { cardClass } from "@/components/dashboard/CardHeading";
 import { ConfirmDialog } from "@/components/usuarios/ConfirmDialog";
 import { parseDiaStr } from "@/components/reportes/fechas";
 import { CampoFecha } from "@/components/horarios/CampoFecha";
+import { cambioDeFondo, confirmarPendiente, type Pendiente } from "@/components/horarios/deFondo";
 
 const VACIA: DatosAusencia = { colaborador: COLABORADORES[0], tipo: "vacaciones", inicio: "", retorno: "", nota: "" };
-
-type Pendiente = { editadas: number; ejecutar: (confirmar: boolean) => Promise<void> };
 
 /** Alta, edición y baja de ausencias. Si el cambio borraría ediciones manuales, pide confirmación. */
 export function AusenciasTab({ onCambio }: { onCambio: () => void }) {
@@ -49,52 +48,59 @@ export function AusenciasTab({ onCambio }: { onCambio: () => void }) {
     };
   }, [version]);
 
-  /** Mide el impacto y ejecuta, o deja la acción pendiente de confirmación. */
-  const conImpacto = async (
+  /** Corre el cambio de fondo; si borraría ediciones manuales, antes pide confirmación. */
+  const cambiar = (
     impacto: { id?: string; ausencia?: DatosAusencia },
     ejecutar: (confirmar: boolean) => Promise<void>,
-  ) => {
-    const { editadas } = await apiFetch<{ editadas: number }>("/api/horarios/ausencias/impacto", {
-      method: "POST",
-      body: JSON.stringify(impacto),
+    textos: { cargando: string; listo: string; alFallar?: () => void },
+  ) =>
+    cambioDeFondo({
+      ...textos,
+      medir: async () =>
+        (
+          await apiFetch<{ editadas: number }>("/api/horarios/ausencias/impacto", {
+            method: "POST",
+            body: JSON.stringify(impacto),
+          })
+        ).editadas,
+      ejecutar,
+      alTerminar: () => {
+        cargar();
+        onCambio();
+      },
+      pedirConfirmacion: setPendiente,
     });
-    const terminar = async (confirmar: boolean) => {
-      await ejecutar(confirmar);
-      cargar();
-      onCambio();
-    };
-    if (editadas > 0) setPendiente({ editadas, ejecutar: terminar });
-    else await terminar(false);
-  };
 
-  const guardar = async () => {
+  /** El formulario se cierra al instante; si falla o se cancela, vuelve a abrirse con lo escrito. */
+  const guardar = () => {
     if (!form) return;
+    const previo = form;
     const { id, datos } = form;
-    try {
-      await conImpacto({ id, ausencia: datos }, async (confirmar) => {
+    setForm(null);
+    void cambiar(
+      { id, ausencia: datos },
+      async (confirmar) => {
         await apiFetch(id ? `/api/horarios/ausencias/${id}` : "/api/horarios/ausencias", {
           method: id ? "PATCH" : "POST",
           body: JSON.stringify({ ...datos, confirmar }),
         });
-        toast.success(id ? "Ausencia actualizada" : "Ausencia agregada");
-        setForm(null);
-      });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo guardar.");
-    }
+      },
+      {
+        cargando: id ? "Actualizando ausencia…" : "Agregando ausencia…",
+        listo: id ? "Ausencia actualizada" : "Ausencia agregada",
+        alFallar: () => setForm((f) => f ?? previo),
+      },
+    );
   };
 
-  const eliminar = async (a: Ausencia) => {
-    try {
-      await conImpacto({ id: a.id }, async (confirmar) => {
+  const eliminar = (a: Ausencia) =>
+    void cambiar(
+      { id: a.id },
+      async (confirmar) => {
         await apiFetch(`/api/horarios/ausencias/${a.id}${confirmar ? "?confirmar=1" : ""}`, { method: "DELETE" });
-        toast.success("Ausencia eliminada");
-      });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo eliminar.");
-      throw err;
-    }
-  };
+      },
+      { cargando: "Eliminando ausencia…", listo: "Ausencia eliminada" },
+    );
 
   const set = <K extends keyof DatosAusencia>(k: K, v: DatosAusencia[K]) =>
     setForm((f) => (f ? { ...f, datos: { ...f.datos, [k]: v } } : f));
@@ -226,27 +232,17 @@ export function AusenciasTab({ onCambio }: { onCambio: () => void }) {
         accion="Eliminar"
         tono="danger"
         onConfirmar={async () => {
-          if (borrando) await eliminar(borrando);
+          if (borrando) eliminar(borrando);
           setBorrando(null);
         }}
       />
 
       <ConfirmDialog
-        open={!!pendiente}
-        onOpenChange={(o) => !o && setPendiente(null)}
+        {...confirmarPendiente(pendiente, () => setPendiente(null))}
         titulo="Se perderán ediciones manuales"
         descripcion={`El horario se vuelve a generar y se pierden ${pendiente?.editadas ?? 0} casillas que editaste a mano. ¿Continuar?`}
         accion="Continuar"
         tono="warning"
-        onConfirmar={async () => {
-          try {
-            await pendiente?.ejecutar(true);
-            setPendiente(null);
-          } catch (err) {
-            toast.error(err instanceof Error ? err.message : "No se pudo guardar.");
-            throw err;
-          }
-        }}
       />
     </div>
   );
