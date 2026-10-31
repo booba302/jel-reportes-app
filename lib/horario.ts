@@ -273,12 +273,15 @@ export const hoyEnZona = (ahora = new Date()) =>
     day: "2-digit",
   }).format(ahora);
 
-/** Meses del enlace de `anio`: generados, desde el inicio del sistema (o enero) hasta el mes en curso. */
-export function mesesVisibles(anio: number, hoy: string, generados: string[]) {
-  const desde = anio === Number(MES_INICIO.slice(0, 4)) ? MES_INICIO : `${anio}-01`;
-  return generados
-    .filter((m) => m.startsWith(`${anio}-`) && m >= desde && m >= MES_INICIO && m <= hoy.slice(0, 7))
-    .sort();
+/** Meses del enlace de `anio`: todos los generados de ese año, desde el inicio del sistema. */
+export function mesesVisibles(anio: number, generados: string[]) {
+  return generados.filter((m) => m.startsWith(`${anio}-`) && m >= MES_INICIO).sort();
+}
+
+/** Mes con el que abre el enlace: el en curso si está, si no el último pasado, si no el primero. */
+export function mesInicial(meses: string[], hoy: string) {
+  const actual = hoy.slice(0, 7);
+  return meses.findLast((m) => m <= actual) ?? meses[0];
 }
 
 /** Solo se puede eliminar el último mes generado, y solo si es posterior al mes en curso. */

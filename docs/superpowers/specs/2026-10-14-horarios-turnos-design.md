@@ -17,7 +17,7 @@ Reemplazar el Excel `Horario 2026.xlsx` con el que se arma a mano, mes a mes, el
 - Ausencias de personas fuera de la rotación (p. ej. Franklin Sánchez) se anotan solo como información.
 - Si se cruzan 2 ausencias (quedan 4 personas): hoy no ocurre. El sistema no genera esos días y avisa; la regla se definirá a futuro.
 - Las transiciones (alguien sale o vuelve) las arma el sistema y el administrador puede editar cualquier casilla.
-- Entrega: **un enlace por año**, en el que se cambia de mes. Solo se ven los meses desde el inicio (octubre 2026) hasta el mes en curso; nunca meses futuros. Hoy: solo octubre; desde el 1/11: octubre y noviembre.
+- Entrega: **un enlace por año**, en el que se cambia de mes. Se ven todos los meses generados del año (desde octubre 2026), incluidos los futuros; abre en el mes en curso.
 
 ## Lo verificado en el Excel (ago–nov 2026)
 
@@ -70,7 +70,7 @@ Si se crea, edita o elimina una ausencia que toca un mes ya generado, se regener
 ### Enlace público `/horario/[id]` (sin login, solo lectura)
 
 - API `/api/horario-publico/[id]?mes=YYYY-MM`. Valida el id y que el enlace esté activo.
-- Meses visibles: desde `2026-10` (y desde enero para años siguientes) hasta el mes en curso, dentro del año del enlace. El servidor rechaza cualquier mes fuera de ese rango; la página solo ofrece esos meses en el selector.
+- Meses visibles: todos los generados dentro del año del enlace (desde `2026-10`). El servidor rechaza cualquier otro mes; la página solo ofrece esos meses en el selector.
 - El mes en curso se calcula con la zona horaria `America/Caracas` (constante única en `lib/horario.ts`).
 - Muestra el calendario, el horario de cada turno y las ausencias del mes. Nada de evaluaciones ni retiros.
 - Enlace inválido o reemplazado: "Enlace no válido".

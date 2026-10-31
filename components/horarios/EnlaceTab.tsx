@@ -11,7 +11,7 @@ import { ConfirmDialog } from "@/components/usuarios/ConfirmDialog";
 
 const copiar = async (id: string, anio: number) => {
   await navigator.clipboard.writeText(`${window.location.origin}/horario/${id}`);
-  toast.success(`Enlace ${anio} copiado`, { description: "Muestra los meses hasta el mes en curso." });
+  toast.success(`Enlace ${anio} copiado`, { description: "Muestra todos los meses generados del año." });
 };
 
 /** Enlace anual que se comparte con los colaboradores. */
@@ -31,7 +31,7 @@ export function EnlaceTab({ anio }: { anio: number }) {
     <div className={cn(cardClass, "flex flex-col gap-3")}>
       <h2 className="font-semibold">Enlace {anio}</h2>
       <p className="text-sm text-muted-foreground">
-        Un solo enlace para todo el año. Los colaboradores ven los meses generados hasta el mes en curso; nunca meses futuros.
+        Un solo enlace para todo el año. Los colaboradores ven todos los meses generados del año, incluidos los que se generen después.
       </p>
       <div className="flex flex-wrap gap-2">
         <Button onClick={copiarActual}>

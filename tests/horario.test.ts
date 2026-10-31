@@ -5,6 +5,7 @@ import {
   estaAusente,
   hoyEnZona,
   mesesVisibles,
+  mesInicial,
   puedeEliminarMes,
   rangoRegeneracion,
   sumarDias,
@@ -188,18 +189,27 @@ describe("fechas", () => {
 
 describe("mesesVisibles", () => {
   const gen = ["2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03"];
-  test("hoy 14/10 solo octubre aunque noviembre esté generado", () => {
-    expect(mesesVisibles(2026, "2026-10-14", gen)).toEqual(["2026-10"]);
+  test("todos los meses generados del año, incluidos los futuros", () => {
+    expect(mesesVisibles(2026, gen)).toEqual(["2026-10", "2026-11", "2026-12"]);
   });
-  test("desde el 1/11 octubre y noviembre", () => {
-    expect(mesesVisibles(2026, "2026-11-01", gen)).toEqual(["2026-10", "2026-11"]);
-  });
-  test("un año siguiente arranca en enero y no mezcla años", () => {
-    expect(mesesVisibles(2027, "2027-02-03", gen)).toEqual(["2027-01", "2027-02"]);
+  test("no mezcla años", () => {
+    expect(mesesVisibles(2027, gen)).toEqual(["2027-01", "2027-02", "2027-03"]);
   });
   test("años antes del inicio y meses no generados no aparecen", () => {
-    expect(mesesVisibles(2025, "2026-10-14", gen)).toEqual([]);
-    expect(mesesVisibles(2026, "2026-11-05", ["2026-10"])).toEqual(["2026-10"]);
+    expect(mesesVisibles(2025, gen)).toEqual([]);
+    expect(mesesVisibles(2026, ["2026-10"])).toEqual(["2026-10"]);
+  });
+});
+
+describe("mesInicial", () => {
+  test("abre en el mes en curso", () => {
+    expect(mesInicial(["2026-10", "2026-11", "2026-12"], "2026-11-05")).toBe("2026-11");
+  });
+  test("si el mes en curso no está, el último pasado", () => {
+    expect(mesInicial(["2026-10", "2026-12"], "2026-11-05")).toBe("2026-10");
+  });
+  test("si todos son futuros, el primero", () => {
+    expect(mesInicial(["2027-01", "2027-02"], "2026-11-05")).toBe("2027-01");
   });
 });
 
